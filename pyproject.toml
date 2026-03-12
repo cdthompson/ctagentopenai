@@ -1,0 +1,9 @@
+[project]
+name = "ctagentopenai"
+version = "0.1.0"
+description = "This project is for experimenting with OpenAI SDK in attempt to create an agent which can chat and has use of some minimal tooling."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+ "openai>=2.26.0",
+]
