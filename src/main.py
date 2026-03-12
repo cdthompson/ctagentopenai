@@ -14,7 +14,7 @@ Items of interest I'm learning with this project (along with commands run):
 import argparse
 import logging
 import sys
-from agent import inference, run_agent_loop
+from agent import Agent
 
 def main(argv):
     parser = argparse.ArgumentParser(description="CTAgentOpenAI")
@@ -33,14 +33,16 @@ def main(argv):
     print("Welcome to CTAgentOpenAI!")
     print()
 
+    agent = Agent(api_key)
+
     if args.input:
         print(f"> {args.input}")
         print()
-        response_text, _ = inference(args.input, api_key)
+        response_text, _ = agent.inference(args.input, api_key)
         print(response_text)
         print()
     else:
-        run_agent_loop(api_key)
+        agent.run_agent_loop(api_key)
 
 if __name__ == "__main__":
     main(sys.argv)
