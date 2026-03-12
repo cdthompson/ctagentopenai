@@ -14,28 +14,33 @@ Items of interest I'm learning with this project (along with commands run):
 import argparse
 import logging
 import sys
-from agent import inference
+from agent import inference, run_agent_loop
 
 def main(argv):
     parser = argparse.ArgumentParser(description="CTAgentOpenAI")
     parser.add_argument("--api-key", help="OpenAI API key", required=True)
-    parser.add_argument("--input", help="Input for the agent to process", required=True)
+    parser.add_argument("--input", help="Input for the agent to process", required=False)
     parser.add_argument("--debug", help="Enable debug mode", action="store_true")
     args = parser.parse_args()
 
     api_key = open(args.api_key).read().strip()
     
     if args.debug:
-        logging.basicConfig(level=logging.WARNING)
+        logging.basicConfig(level=logging.DEBUG)
     else:
-        logging.basicConfig(level=logging.INFO)
+        logging.basicConfig(level=logging.WARNING)
 
     print("Welcome to CTAgentOpenAI!")
     print()
-    print(f"> {args.input}")
-    print()
-    print(inference(args.input, api_key))
-    print()
+
+    if args.input:
+        print(f"> {args.input}")
+        print()
+        response_text, _ = inference(args.input, api_key)
+        print(response_text)
+        print()
+    else:
+        run_agent_loop(api_key)
 
 if __name__ == "__main__":
     main(sys.argv)
