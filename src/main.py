@@ -38,7 +38,7 @@ def main(argv):
     if args.input:
         print(f"> {args.input}")
         print()
-        response_text, _ = agent.inference(args.input, api_key)
+        response_text, _ = agent.inference_with_tools(args.input, api_key)
         print(response_text)
         print()
     else:
