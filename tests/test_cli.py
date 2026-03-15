@@ -9,9 +9,8 @@ def test_cli_one_shot_mode_reads_key_and_prints_response(monkeypatch, capsys, tm
         def __init__(self, api_key):
             self.api_key = api_key
 
-        def inference_with_tools(self, user_input, api_key):
+        def inference_with_tools(self, user_input):
             assert self.api_key == "test-key"
-            assert api_key == "test-key"
             assert user_input == "hello"
             return "hi there", "resp_1"
 

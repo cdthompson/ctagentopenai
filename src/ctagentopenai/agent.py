@@ -1,8 +1,12 @@
+from __future__ import annotations
+
 import json
-import subprocess
 from logging import getLogger
+from typing import Any
 
 from openai import OpenAI
+
+from .tool import DEFAULT_TOOLS, Tool, ToolCall, ToolResult
 
 
 MODEL_NAME = "gpt-5-nano"
@@ -16,90 +20,62 @@ SOUL_PROMPT = (
 logger = getLogger(__name__)
 
 
-class BaseTool:
-    def __init__(self, name, description, parameters):
-        self.name = name
-        self.description = description
-        self.parameters = parameters
+def get_tool_by_name(tools: list[Tool], name: str) -> Tool:
+    for tool in tools:
+        if tool.spec.name == name:
+            return tool
+    raise KeyError(f"Unknown tool: {name}")
 
-    def __call__(self, input):
-        raise NotImplementedError("Tool subclasses must implement the __call__ method.")
 
-    def to_openai_tool(self):
-        """Convert the tool to a format compatible with the OpenAI API."""
-        tool_dict = {
+def build_openai_tools(tools: list[Tool]) -> list[dict[str, Any]]:
+    openai_tools = []
+    for tool in tools:
+        spec = tool.spec
+        openai_tool = {
             "type": "function",
-            "name": self.name,
-            "description": self.description,
-            "parameters": self.parameters,
+            "name": spec.name,
+            "description": spec.description,
             "strict": True,
         }
-        if self.parameters:
-            tool_dict["parameters"] = self.parameters
-        return tool_dict
+        if spec.input_schema is not None:
+            openai_tool["parameters"] = spec.input_schema
+        openai_tools.append(openai_tool)
+    return openai_tools
 
 
-class FavoriteColorTool(BaseTool):
-    def __init__(self):
-        super().__init__(
-            name="FavoriteColorTool",
-            description=(
-                "This tool allows you to retrieve the user's favorite color. "
-                "It takes no input and returns a string with their favorite color."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {},
-                "required": [],
-                "additionalProperties": False,
-            },
-        )
+def extract_openai_tool_calls(response) -> list[ToolCall]:
+    calls = []
+    for item in response.output:
+        if getattr(item, "type", None) != "function_call":
+            continue
 
-    def __call__(self, input=None):
-        return "blue"
-
-
-class CalculatorTool(BaseTool):
-    def __init__(self):
-        super().__init__(
-            name="CalculatorTool",
-            description=(
-                "This tool allows you to perform basic arithmetic calculations. "
-                "It takes a string input with the calculation you want to perform "
-                "(e.g. '2 + 2') and returns a numeric value with the result."
-            ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "calculation": {
-                        "type": "string",
-                        "description": "The calculation to perform, as a string (e.g. '2 + 2')",
-                    }
-                },
-                "required": ["calculation"],
-                "additionalProperties": False,
-            },
-        )
-
-    def __call__(self, calculation):
-        """Use bc to perform basic arithmetic calculations."""
-        try:
-            result = subprocess.check_output(["bc"], input=calculation.encode())
-            return result.decode().strip()
-        except subprocess.CalledProcessError as e:
-            logger.warning(f"Error in calculation: {e}")
-        except FileNotFoundError:
-            logger.warning(
-                "Error: 'bc' command not found. Please install 'bc' to use the Calculator Tool."
+        arguments = json.loads(item.arguments) if item.arguments else {}
+        calls.append(
+            ToolCall(
+                tool_name=item.name,
+                call_id=item.call_id,
+                arguments=arguments,
             )
+        )
+    return calls
 
-        return ""
+
+def build_openai_tool_outputs(results: list[ToolResult]) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function_call_output",
+            "call_id": result.call_id,
+            "output": result.output,
+        }
+        for result in results
+    ]
 
 
 class Agent:
-    def __init__(self, api_key):
+    def __init__(self, api_key: str, tools: list[Tool] | None = None):
         self.client = OpenAI(api_key=api_key)
-        self.tools = [x.to_openai_tool() for x in [FavoriteColorTool(), CalculatorTool()]]
+        self.tools = tools or list(DEFAULT_TOOLS)
+        self.openai_tools = build_openai_tools(self.tools)
         self.system_prompt = SOUL_PROMPT
 
     def non_empty_input(self, prompt):
@@ -109,7 +85,7 @@ class Agent:
             user_input = input(prompt)
         return user_input
 
-    def run_agent_loop(self, api_key):
+    def run_agent_loop(self):
         """Run a conversation in a loop with the agent."""
         try:
             user_input = self.non_empty_input("> ")
@@ -117,7 +93,7 @@ class Agent:
             while user_input.lower() not in ["exit", "quit"]:
                 print()
                 response, previous_response_id = self.inference_with_tools(
-                    user_input, api_key, previous_response_id
+                    user_input, previous_response_id
                 )
                 print(response)
                 print()
@@ -126,7 +102,7 @@ class Agent:
             print("\nExiting...")
             return
 
-    def inference(self, input, api_key, previous_response_id=None):
+    def inference(self, input, previous_response_id=None):
         """Run inference on the input using the OpenAI API."""
         if isinstance(input, str):
             input = [
@@ -143,15 +119,15 @@ class Agent:
         response = self.client.responses.create(
             model=MODEL_NAME,
             input=input,
-            tools=self.tools,
+            tools=self.openai_tools,
             max_output_tokens=MAX_OUTPUT_TOKENS,
             previous_response_id=previous_response_id,
         )
         if response.error:
-            logger.error(f"Error in inference: {response.error}")
+            logger.error("Error in inference: %s", response.error)
             return f"Error in inference: {response.error}", None
         if response.incomplete_details:
-            logger.warning(f"Incomplete response: {response.incomplete_details}")
+            logger.warning("Incomplete response: %s", response.incomplete_details)
             if response.incomplete_details.type == "max_output_tokens":
                 logger.warning(
                     "The response was cut off because it exceeded the maximum "
@@ -161,7 +137,7 @@ class Agent:
         logger.debug(response.model_dump_json(indent=2))
         return response
 
-    def inference_with_tools(self, input, api_key, previous_response_id=None):
+    def inference_with_tools(self, input, previous_response_id=None):
         """Run inference on the input using the OpenAI API, and handle tool calls."""
         input_list = [
             {
@@ -174,27 +150,24 @@ class Agent:
             },
         ]
         for _ in range(MAX_TOOL_CALLS):
-            response = self.inference(input_list, api_key, previous_response_id)
+            response = self.inference(input_list, previous_response_id)
             input_list.extend(response.output)
 
-            tool_was_called = False
-            for item in response.output:
-                if getattr(item, "type", None) == "function_call":
-                    logger.debug(f"Tool call detected: {item.name} with arguments {item.arguments}")
-                    tool_class = globals()[item.name]
-                    tool_args = json.loads(item.arguments)
-                    result = tool_class()(**tool_args)
-                    logger.debug(f"Tool call returned: {result}")
-                    input_list.append(
-                        {
-                            "type": "function_call_output",
-                            "call_id": item.call_id,
-                            "output": result,
-                        }
-                    )
-                    tool_was_called = True
-
-            if not tool_was_called:
+            tool_calls = extract_openai_tool_calls(response)
+            if not tool_calls:
                 break
+
+            results = []
+            for tool_call in tool_calls:
+                logger.debug(
+                    "Tool call detected: %s with arguments %s",
+                    tool_call.tool_name,
+                    tool_call.arguments,
+                )
+                result = get_tool_by_name(self.tools, tool_call.tool_name).invoke(tool_call)
+                logger.debug("Tool call returned: %s", result.output)
+                results.append(result)
+
+            input_list.extend(build_openai_tool_outputs(results))
 
         return response.output_text, response.id

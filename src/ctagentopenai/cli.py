@@ -40,11 +40,11 @@ def main(argv=None):
     if args.input:
         print(f"> {args.input}")
         print()
-        response_text, _ = agent.inference_with_tools(args.input, api_key)
+        response_text, _ = agent.inference_with_tools(args.input)
         print(response_text)
         print()
     else:
-        agent.run_agent_loop(api_key)
+        agent.run_agent_loop()
 
 
 if __name__ == "__main__":

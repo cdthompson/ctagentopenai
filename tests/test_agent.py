@@ -3,7 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from ctagentopenai.agent import Agent, CalculatorTool, FavoriteColorTool
+from ctagentopenai.agent import (
+    Agent,
+    build_openai_tools,
+    extract_openai_tool_calls,
+    get_tool_by_name,
+)
+from ctagentopenai.tool import CalculatorTool, FavoriteColorTool, ToolCall
 
 
 class FakeResponses:
@@ -33,20 +39,25 @@ def make_response(output=None, output_text="", response_id="resp_1"):
 
 
 def test_favorite_color_tool_schema():
-    tool = FavoriteColorTool().to_openai_tool()
+    tool = build_openai_tools([FavoriteColorTool()])[0]
 
     assert tool["type"] == "function"
-    assert tool["name"] == "FavoriteColorTool"
+    assert tool["name"] == "favorite_color"
     assert tool["parameters"]["additionalProperties"] is False
 
 
 def test_calculator_tool_returns_bc_output(monkeypatch):
     monkeypatch.setattr(
-        "ctagentopenai.agent.subprocess.check_output",
+        "ctagentopenai.tool.subprocess.check_output",
         lambda args, input: b"4\n",
     )
 
-    assert CalculatorTool()("2 + 2") == "4"
+    result = CalculatorTool().invoke(
+        ToolCall(tool_name="calculator", call_id="call_1", arguments={"calculation": "2 + 2"})
+    )
+
+    assert result.output == "4"
+    assert result.is_error is False
 
 
 def test_inference_wraps_string_input(monkeypatch):
@@ -64,7 +75,7 @@ def test_inference_wraps_string_input(monkeypatch):
     monkeypatch.setattr("ctagentopenai.agent.OpenAI", StubOpenAI)
 
     agent = Agent("test-key")
-    response = agent.inference("hello", "unused")
+    response = agent.inference("hello")
 
     assert response.output_text == ""
     assert captured["api_key"] == "test-key"
@@ -72,12 +83,35 @@ def test_inference_wraps_string_input(monkeypatch):
     assert captured["kwargs"]["input"][1] == {"role": "user", "content": "hello"}
 
 
+def test_get_tool_by_name_returns_tool():
+    tool = get_tool_by_name([FavoriteColorTool()], "favorite_color")
+
+    assert tool.spec.name == "favorite_color"
+
+
+def test_extract_openai_tool_calls_builds_internal_calls():
+    response = make_response(
+        output=[
+            SimpleNamespace(
+                type="function_call",
+                name="favorite_color",
+                arguments=json.dumps({}),
+                call_id="call_1",
+            )
+        ]
+    )
+
+    tool_calls = extract_openai_tool_calls(response)
+
+    assert tool_calls == [ToolCall(tool_name="favorite_color", call_id="call_1", arguments={})]
+
+
 def test_inference_with_tools_executes_function_calls(monkeypatch):
     first_response = make_response(
         output=[
             SimpleNamespace(
                 type="function_call",
-                name="FavoriteColorTool",
+                name="favorite_color",
                 arguments=json.dumps({}),
                 call_id="call_1",
             )
@@ -93,7 +127,7 @@ def test_inference_with_tools_executes_function_calls(monkeypatch):
     monkeypatch.setattr("ctagentopenai.agent.OpenAI", StubOpenAI)
 
     agent = Agent("test-key")
-    output_text, response_id = agent.inference_with_tools("What is my favorite color?", "unused")
+    output_text, response_id = agent.inference_with_tools("What is my favorite color?")
 
     calls = agent.client.responses.calls
     assert output_text == "Your favorite color is blue."
@@ -116,7 +150,7 @@ def test_run_agent_loop_exits_cleanly_on_keyboard_interrupt(monkeypatch, capsys)
     agent = Agent("test-key")
     monkeypatch.setattr(agent, "non_empty_input", lambda prompt: (_ for _ in ()).throw(KeyboardInterrupt))
 
-    agent.run_agent_loop("unused")
+    agent.run_agent_loop()
 
     captured = capsys.readouterr()
     assert "Exiting..." in captured.out
