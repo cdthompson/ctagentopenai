@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "ctagentopenai"
 version = "0.1.0"
@@ -7,3 +11,27 @@ requires-python = ">=3.9"
 dependencies = [
  "openai>=2.26.0",
 ]
+
+[project.scripts]
+ctagentopenai = "ctagentopenai.cli:main"
+
+[dependency-groups]
+dev = [
+ "pytest>=8.0",
+ "pytest-cov>=5.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ctagentopenai"]
+
+[tool.hatch.build]
+exclude = [
+ ".*.key",
+ ".pytest_cache",
+ ".python-version",
+ ".uv-cache",
+ ".venv",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
