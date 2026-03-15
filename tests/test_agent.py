@@ -9,7 +9,14 @@ from ctagentopenai.agent import (
     extract_openai_tool_calls,
     get_tool_by_name,
 )
-from ctagentopenai.tool import CalculatorTool, FavoriteColorTool, ToolCall
+from ctagentopenai.tool import (
+    CalculatorTool,
+    FavoriteColorTool,
+    GetTimeTool,
+    ListFilesTool,
+    ReadFileTool,
+    ToolCall,
+)
 
 
 class FakeResponses:
@@ -44,6 +51,13 @@ def test_favorite_color_tool_schema():
     assert tool["type"] == "function"
     assert tool["name"] == "favorite_color"
     assert tool["parameters"]["additionalProperties"] is False
+    assert tool["parameters"]["required"] == []
+
+
+def test_list_files_tool_schema_requires_path():
+    tool = build_openai_tools([ListFilesTool()])[0]
+
+    assert tool["parameters"]["required"] == ["path"]
 
 
 def test_calculator_tool_returns_bc_output(monkeypatch):
@@ -104,6 +118,73 @@ def test_extract_openai_tool_calls_builds_internal_calls():
     tool_calls = extract_openai_tool_calls(response)
 
     assert tool_calls == [ToolCall(tool_name="favorite_color", call_id="call_1", arguments={})]
+
+
+def test_get_time_tool_returns_timestamp():
+    result = GetTimeTool().invoke(ToolCall(tool_name="get_time", call_id="call_1"))
+
+    assert result.is_error is False
+    assert result.output
+
+
+def test_list_files_tool_lists_directory_contents(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "alpha.txt").write_text("a", encoding="utf-8")
+    (tmp_path / "nested").mkdir()
+
+    result = ListFilesTool().invoke(
+        ToolCall(tool_name="list_files", call_id="call_1", arguments={"path": "."})
+    )
+
+    assert result.is_error is False
+    assert result.output.splitlines() == ["nested/", "alpha.txt"]
+
+
+def test_list_files_tool_rejects_paths_outside_project(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    result = ListFilesTool().invoke(
+        ToolCall(tool_name="list_files", call_id="call_1", arguments={"path": "../"})
+    )
+
+    assert result.is_error is True
+    assert "escapes the current project" in result.output
+
+
+def test_read_file_tool_reads_utf8_file(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    readme = tmp_path / "notes.txt"
+    readme.write_text("hello\nworld\n", encoding="utf-8")
+
+    result = ReadFileTool().invoke(
+        ToolCall(tool_name="read_file", call_id="call_1", arguments={"path": "notes.txt"})
+    )
+
+    assert result.is_error is False
+    assert result.output == "hello\nworld\n"
+
+
+def test_read_file_tool_rejects_directory(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "docs").mkdir()
+
+    result = ReadFileTool().invoke(
+        ToolCall(tool_name="read_file", call_id="call_1", arguments={"path": "docs"})
+    )
+
+    assert result.is_error is True
+    assert "not a file" in result.output
+
+
+def test_read_file_tool_rejects_paths_outside_project(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+
+    result = ReadFileTool().invoke(
+        ToolCall(tool_name="read_file", call_id="call_1", arguments={"path": "../secret.txt"})
+    )
+
+    assert result.is_error is True
+    assert "escapes the current project" in result.output
 
 
 def test_inference_with_tools_executes_function_calls(monkeypatch):

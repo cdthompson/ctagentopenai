@@ -121,6 +121,7 @@ class Agent:
             input=input,
             tools=self.openai_tools,
             max_output_tokens=MAX_OUTPUT_TOKENS,
+            max_tool_calls=MAX_TOOL_CALLS,
             previous_response_id=previous_response_id,
         )
         if response.error:
