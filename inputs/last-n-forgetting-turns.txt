@@ -1,0 +1,7 @@
+You are helping me design a weekly meal plan. Acknowledge only with: constraint recorded. First non-negotiable: no dairy.
+Acknowledge only with: constraint recorded. Second constraint: no gluten.
+Acknowledge only with: constraint recorded. Third constraint: no shellfish.
+Acknowledge only with: constraint recorded. Fourth constraint: breakfasts must be portable.
+Acknowledge only with: constraint recorded. Fifth constraint: dinners must be under 30 minutes.
+Acknowledge only with: constraint recorded. Sixth constraint: my budget is $90 per week.
+Now summarize all my constraints and propose a 3-day plan.
