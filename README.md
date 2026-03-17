@@ -55,12 +55,11 @@ Current agent capabilities:
 Conversation history behavior:
 
 - `server-managed`: the app sends `previous_response_id` and lets the API manage prior turns
-- `local-all`: the app keeps the full transcript in memory and resends all prior turns on each request
 - `local-last-n`: the app keeps only the last `N` turns in memory and resends those, which makes forgetting behavior easy to observe
 
 Flags that control this behavior:
 
-- `--history-mode {server-managed,local-all,local-last-n}` selects the memory strategy
+- `--history-mode {server-managed,local-last-n}` selects the memory strategy
 - `--last-n-turns N` sets how many prior turns are retained for `local-last-n`
 - `--input-file PATH` replays one user turn per line from a file
 - `--info` prints per-turn context usage through the logger in addition to the human-facing transcript
@@ -70,7 +69,7 @@ Checked-in example inputs:
 
 - `inputs/exercise-plan-turns.txt` is a general multi-turn example
 - `inputs/last-n-forgetting-turns.txt` is tuned to show forgetting with short intermediate acknowledgements
-- `inputs/keep-all-overflow-turns.txt` is intentionally oversized to stress `local-all`
+- `inputs/keep-all-overflow-turns.txt` is intentionally oversized to stress a very large `local-last-n` setting
 
 ## Limits And Failure Modes
 
@@ -86,15 +85,15 @@ things:
   `[request rejected: exceeded API rate limit or token budget; stopping further turns]`.
 - context window pressure: the app shows estimated input-token usage per turn as
   a percentage of the configured model context window. This helps show when
-  `local-all` or long conversations are becoming unrealistic even before a hard
+  very large local replay windows or long conversations are becoming unrealistic even before a hard
   failure.
 
 Practical implications:
 
 - `local-last-n` is the simplest controlled memory policy and is useful for
   demonstrating forgetting.
-- `local-all` is intentionally naive. It is useful for learning, but it will
-  eventually run into either account limits or model-context limits.
+- a very large `local-last-n` value is intentionally naive. It is useful for
+  learning, but it will eventually run into either account limits or model-context limits.
 - true long-run memory management belongs in the next milestone, where older
   turns can be summarized or selectively retained instead of replayed forever.
 
@@ -116,6 +115,19 @@ Enable debug logging:
 
 ```bash
 uv run ctagentopenai --api-key .openai.key --debug
+```
+
+Run the memory lab against a scripted set of turns:
+
+```bash
+uv run ctagentopenai-memory-lab --api-key .openai.key --input-file scenarios/example.txt --history-mode local-last-n --last-n-turns 3
+```
+
+List or run the named memory-lab suite:
+
+```bash
+uv run ctagentopenai-memory-lab-suite --list
+uv run ctagentopenai-memory-lab-suite --api-key .openai.key --case forgetting-last-n-2
 ```
 
 Enable info logging for per-turn context usage:
@@ -143,7 +155,6 @@ clearly on the final turn.
 Available conversation history modes:
 
 - `server-managed`: use `previous_response_id` and let the API manage history
-- `local-all`: keep the full transcript in memory and resend it every turn
 - `local-last-n`: keep only the last `N` turns in memory and resend those
 
 ## Project Notes

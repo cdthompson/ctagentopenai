@@ -1,32 +1,41 @@
-"""
-This project is for experimenting with OpenAI SDK in attempt to create an
-agent which can chat and has use of some minimal tooling.
-
-Items of interest I'm learning with this project (along with commands run):
-- OpenAI SDK https://developers.openai.com/api/docs/quickstart/?language=python
-    1. Sign into platform.openai.com
-    2. Generate a new API key and save to .openai.key
-- uv package manager https://docs.astral.sh/uv/getting-started/
-    1. Install uv `curl -LsSf https://astral.sh/uv/install.sh | sh`
-    2. Check installed python version `uv python list`
-"""
+from __future__ import annotations
 
 import argparse
 import logging
 import sys
 
 from .agent import Agent, ConversationStrategy
-from .runner import print_agent_response, run_agent_loop, run_turns, startup_summary
+from .runner import run_turns, startup_summary
+
+
+def memory_snapshot_text(agent: Agent) -> str:
+    state = agent.conversation_state
+    return (
+        "[memory "
+        f"strategy={state.strategy.value} | "
+        f"stored_turns={len(state.turns)} | "
+        f"visible_turns={len(state.visible_turns())} | "
+        f"transcript_chars={state.transcript_character_count()} | "
+        f"last_input_tokens={state.latest_usage.input_tokens} | "
+        f"last_output_tokens={state.latest_usage.output_tokens} | "
+        f"previous_response_id={state.previous_response_id or '-'}"
+        "]"
+    )
+
+
+def print_memory_snapshot(agent: Agent, user_input: str, response_text: str) -> None:
+    del user_input
+    del response_text
+    print(memory_snapshot_text(agent))
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="CTAgentOpenAI")
+    parser = argparse.ArgumentParser(description="CTAgentOpenAI memory lab")
     parser.add_argument("--api-key", help="OpenAI API key", required=True)
-    parser.add_argument("--input", help="Input for the agent to process", required=False)
     parser.add_argument(
         "--input-file",
         help="Read one user turn per line from a file.",
-        required=False,
+        required=True,
     )
     parser.add_argument("--info", help="Enable info level logging", action="store_true")
     parser.add_argument("--debug", help="Enable debug mode", action="store_true")
@@ -53,7 +62,7 @@ def main(argv=None):
     else:
         logging.basicConfig(level=logging.WARNING)
 
-    print("Welcome to CTAgentOpenAI!")
+    print("Welcome to CTAgentOpenAI memory lab!")
     print()
 
     agent = Agent(
@@ -62,22 +71,11 @@ def main(argv=None):
         last_n_turns=args.last_n_turns,
     )
     print(startup_summary(agent))
+    print(memory_snapshot_text(agent))
     print()
 
-    if args.input and args.input_file:
-        raise SystemExit("--input and --input-file cannot be used together")
-
-    if args.input:
-        print(f"> {args.input}")
-        print()
-        response_text, _ = agent.inference_with_tools(args.input)
-        print_agent_response(agent, response_text)
-        print()
-    elif args.input_file:
-        with open(args.input_file, encoding="utf-8") as input_file:
-            run_turns(agent, input_file)
-    else:
-        run_agent_loop(agent)
+    with open(args.input_file, encoding="utf-8") as input_file:
+        run_turns(agent, input_file, post_turn_hook=print_memory_snapshot)
 
 
 if __name__ == "__main__":

@@ -303,11 +303,11 @@ def test_inference_with_tools_executes_function_calls(monkeypatch):
 def test_build_system_prompt_includes_usage_and_strategy():
     prompt = build_system_prompt(
         "You are direct.",
-        ConversationStrategy.LOCAL_ALL,
+        ConversationStrategy.LOCAL_LAST_N,
         UsageSnapshot(input_tokens=2000),
     )
 
-    assert "Conversation mode: local-all." in prompt
+    assert "Conversation mode: local-last-n." in prompt
     assert "2000/400000 tokens (0.50%)" in prompt
 
 
@@ -327,7 +327,7 @@ def test_local_all_replays_full_transcript(monkeypatch):
 
     monkeypatch.setattr("ctagentopenai.agent.OpenAI", StubOpenAI)
 
-    agent = Agent("test-key", conversation_strategy=ConversationStrategy.LOCAL_ALL)
+    agent = Agent("test-key", conversation_strategy=ConversationStrategy.LOCAL_LAST_N, last_n_turns=99)
     agent.inference_with_tools("First question")
     agent.inference_with_tools("Second question")
 
@@ -401,7 +401,7 @@ def test_multi_turn_exercise_plan_preserves_prior_constraints(monkeypatch):
 
     monkeypatch.setattr("ctagentopenai.agent.OpenAI", StubOpenAI)
 
-    agent = Agent("test-key", conversation_strategy=ConversationStrategy.LOCAL_ALL)
+    agent = Agent("test-key", conversation_strategy=ConversationStrategy.LOCAL_LAST_N, last_n_turns=99)
     turns = [
         "Create an exercise plan for a 48 year old male.",
         "He has a back injury preventing high-impact exercise.",

@@ -31,7 +31,6 @@ logger = getLogger(__name__)
 
 class ConversationStrategy(str, Enum):
     SERVER_MANAGED = "server-managed"
-    LOCAL_ALL = "local-all"
     LOCAL_LAST_N = "local-last-n"
 
 
@@ -80,8 +79,6 @@ class ConversationState:
     def visible_turns(self) -> list[TurnRecord]:
         if self.strategy == ConversationStrategy.LOCAL_LAST_N:
             return self.turns[-self.last_n_turns :]
-        if self.strategy == ConversationStrategy.LOCAL_ALL:
-            return self.turns
         return []
 
     def previous_response_id_for_request(self) -> str | None:

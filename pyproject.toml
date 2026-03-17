@@ -14,6 +14,8 @@ dependencies = [
 
 [project.scripts]
 ctagentopenai = "ctagentopenai.cli:main"
+ctagentopenai-memory-lab = "ctagentopenai.memory_lab:main"
+ctagentopenai-memory-lab-suite = "ctagentopenai.memory_lab_suite:main"
 
 [dependency-groups]
 dev = [
