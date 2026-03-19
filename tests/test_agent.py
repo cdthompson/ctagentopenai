@@ -6,14 +6,19 @@ import openai
 from ctagentopenai.agent import (
     Agent,
     AgentExecutionHalt,
+    ConversationState,
     ConversationStrategy,
     DEFAULT_MODEL_CONFIG,
+    SUMMARY_SYSTEM_PROMPT,
+    TurnRecord,
     UsageSnapshot,
     build_openai_tools,
     build_system_prompt,
     extract_openai_tool_calls,
+    get_model_config,
     get_tool_by_name,
     incomplete_response_notice,
+    lowest_reasoning_effort,
 )
 from ctagentopenai.tool import (
     CalculatorTool,
@@ -317,6 +322,20 @@ def test_usage_percentage_returns_fraction_of_context_window():
     assert usage_percentage(UsageSnapshot(input_tokens=2000)) == 0.5
 
 
+def test_lowest_reasoning_effort_picks_first_supported_value():
+    assert lowest_reasoning_effort(DEFAULT_MODEL_CONFIG) == "minimal"
+    assert lowest_reasoning_effort({}) is None
+
+
+def test_get_model_config_raises_for_unknown_model():
+    try:
+        get_model_config("unknown-model")
+    except ValueError as exc:
+        assert "Unsupported model" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
 def test_local_all_replays_full_transcript(monkeypatch):
     first_response = make_response(output_text="First answer", response_id="resp_1")
     second_response = make_response(output_text="Second answer", response_id="resp_2")
@@ -365,6 +384,184 @@ def test_local_last_n_limits_visible_turns(monkeypatch):
     assert third_call["input"][2] == {"role": "assistant", "content": "Answer two"}
     assert third_call["input"][3] == {"role": "user", "content": "Question three"}
     assert {"role": "user", "content": "Question one"} not in third_call["input"]
+
+
+def test_summary_compaction_updates_summary_and_reuses_it(monkeypatch):
+    responses = [
+        make_response(output_text="Answer one", response_id="resp_1"),
+        make_response(output_text="Answer two", response_id="resp_2"),
+        make_response(output_text="Answer three", response_id="resp_3"),
+        make_response(output_text="Summary of older turns", response_id="resp_summary"),
+        make_response(output_text="Answer four", response_id="resp_4"),
+        make_response(output_text="Updated summary of older turns", response_id="resp_summary_2"),
+    ]
+
+    class StubOpenAI:
+        def __init__(self, api_key):
+            self.responses = FakeResponses(responses)
+
+    monkeypatch.setattr("ctagentopenai.agent.OpenAI", StubOpenAI)
+
+    agent = Agent(
+        "test-key",
+        conversation_strategy=ConversationStrategy.LOCAL_LAST_N,
+        last_n_turns=2,
+        summary_trigger_turns=2,
+        summary_keep_recent_turns=1,
+    )
+    agent.inference_with_tools("Question one")
+    agent.inference_with_tools("Question two")
+    agent.inference_with_tools("Question three")
+    agent.inference_with_tools("Question four")
+
+    calls = agent.client.responses.calls
+    summary_call = calls[3]
+    fourth_turn_call = calls[4]
+    second_summary_call = calls[5]
+    assert "tools" not in summary_call
+    assert summary_call["input"][0]["content"] == SUMMARY_SYSTEM_PROMPT
+    assert summary_call["model"] == "gpt-5-nano"
+    assert summary_call["reasoning"] == {"effort": "minimal"}
+    assert summary_call["store"] is False
+    assert "Question one" in summary_call["input"][1]["content"]
+    assert "Answer one" in summary_call["input"][1]["content"]
+    assert fourth_turn_call["input"][1] == {
+        "role": "system",
+        "content": "Summary of earlier conversation:\nSummary of older turns",
+    }
+    assert fourth_turn_call["input"][2] == {"role": "user", "content": "Question three"}
+    assert fourth_turn_call["input"][3] == {"role": "assistant", "content": "Answer three"}
+    assert fourth_turn_call["input"][4] == {"role": "user", "content": "Question four"}
+    assert "Existing summary:\nSummary of older turns" in second_summary_call["input"][1]["content"]
+    assert "Question three" in second_summary_call["input"][1]["content"]
+    assert agent.conversation_state.summary_text == "Updated summary of older turns"
+    assert agent.conversation_state.summarized_turn_count == 3
+
+
+def test_summary_compaction_halts_on_incomplete_summary_response(monkeypatch):
+    responses = [
+        make_response(output_text="Answer one", response_id="resp_1"),
+        make_response(output_text="Answer two", response_id="resp_2"),
+        make_response(output_text="Answer three", response_id="resp_3"),
+        make_response(
+            output_text="",
+            response_id="resp_summary",
+            incomplete_details=SimpleNamespace(reason="max_output_tokens"),
+        ),
+    ]
+
+    class StubOpenAI:
+        def __init__(self, api_key):
+            self.responses = FakeResponses(responses)
+
+    monkeypatch.setattr("ctagentopenai.agent.OpenAI", StubOpenAI)
+
+    agent = Agent(
+        "test-key",
+        conversation_strategy=ConversationStrategy.LOCAL_LAST_N,
+        last_n_turns=2,
+        summary_trigger_turns=2,
+        summary_keep_recent_turns=1,
+    )
+    agent.inference_with_tools("Question one")
+    agent.inference_with_tools("Question two")
+
+    try:
+        agent.inference_with_tools("Question three")
+    except AgentExecutionHalt as exc:
+        assert exc.user_message == (
+            "[summary generation failed: response was truncated before summary text was produced]"
+        )
+    else:
+        raise AssertionError("expected AgentExecutionHalt")
+
+
+def test_summary_compaction_halts_on_empty_summary_text(monkeypatch):
+    responses = [
+        make_response(output_text="Answer one", response_id="resp_1"),
+        make_response(output_text="Answer two", response_id="resp_2"),
+        make_response(output_text="Answer three", response_id="resp_3"),
+        make_response(output_text="   ", response_id="resp_summary"),
+    ]
+
+    class StubOpenAI:
+        def __init__(self, api_key):
+            self.responses = FakeResponses(responses)
+
+    monkeypatch.setattr("ctagentopenai.agent.OpenAI", StubOpenAI)
+
+    agent = Agent(
+        "test-key",
+        conversation_strategy=ConversationStrategy.LOCAL_LAST_N,
+        last_n_turns=2,
+        summary_trigger_turns=2,
+        summary_keep_recent_turns=1,
+    )
+    agent.inference_with_tools("Question one")
+    agent.inference_with_tools("Question two")
+
+    try:
+        agent.inference_with_tools("Question three")
+    except AgentExecutionHalt as exc:
+        assert exc.user_message == (
+            "[summary generation failed: response contained no summary text]"
+        )
+    else:
+        raise AssertionError("expected AgentExecutionHalt")
+
+
+def test_agent_rejects_unsupported_summary_reasoning_effort():
+    try:
+        Agent(
+            "test-key",
+            summary_model="gpt-5-nano",
+            summary_reasoning_effort="none",
+        )
+    except ValueError as exc:
+        assert "Unsupported summary reasoning effort" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")
+
+
+def test_visible_turns_excludes_summarized_turns():
+    state = ConversationState(
+        strategy=ConversationStrategy.LOCAL_LAST_N,
+        last_n_turns=3,
+        summary_trigger_turns=4,
+        summary_keep_recent_turns=2,
+    )
+    state.turns = [
+        TurnRecord("Q1", "A1", UsageSnapshot()),
+        TurnRecord("Q2", "A2", UsageSnapshot()),
+        TurnRecord("Q3", "A3", UsageSnapshot()),
+        TurnRecord("Q4", "A4", UsageSnapshot()),
+    ]
+    state.summarized_turn_count = 2
+
+    visible = state.visible_turns()
+
+    assert [turn.user_message for turn in visible] == ["Q3", "Q4"]
+
+
+def test_visible_turns_include_all_unsummarized_turns_when_summary_enabled():
+    state = ConversationState(
+        strategy=ConversationStrategy.LOCAL_LAST_N,
+        last_n_turns=2,
+        summary_trigger_turns=3,
+        summary_keep_recent_turns=2,
+    )
+    state.turns = [
+        TurnRecord("Q1", "A1", UsageSnapshot()),
+        TurnRecord("Q2", "A2", UsageSnapshot()),
+        TurnRecord("Q3", "A3", UsageSnapshot()),
+        TurnRecord("Q4", "A4", UsageSnapshot()),
+    ]
+    state.summarized_turn_count = 1
+
+    visible = state.visible_turns()
+
+    assert [turn.user_message for turn in visible] == ["Q2", "Q3", "Q4"]
+    assert state.unsummarized_turn_count() == 3
 
 
 def test_server_managed_uses_previous_response_id(monkeypatch):

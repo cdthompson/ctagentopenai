@@ -36,11 +36,30 @@ def startup_summary(agent: Agent) -> str:
     last_n_suffix = ""
     if agent.conversation_state.strategy == ConversationStrategy.LOCAL_LAST_N:
         last_n_suffix = f", last_n_turns={agent.conversation_state.last_n_turns}"
+    summary_trigger_turns = getattr(agent.conversation_state, "summary_trigger_turns", None)
+    summary_keep_recent_turns = getattr(agent.conversation_state, "summary_keep_recent_turns", None)
+    summary_suffix = ""
+    if summary_trigger_turns is not None:
+        summary_suffix = (
+            f", summary_trigger_turns={summary_trigger_turns}"
+            f", summary_keep_recent_turns={summary_keep_recent_turns}"
+        )
+    summary_model = getattr(agent, "summary_model", None)
+    summary_reasoning_effort = getattr(agent, "summary_reasoning_effort", None)
+    summary_model_suffix = ""
+    if summary_model is not None:
+        summary_model_suffix = f", summary_model={summary_model}"
+    summary_reasoning_suffix = ""
+    if summary_reasoning_effort is not None:
+        summary_reasoning_suffix = f", summary_reasoning_effort={summary_reasoning_effort}"
     return (
         "[startup "
         f"model=gpt-5-nano, "
         f"history_mode={agent.conversation_state.strategy.value}"
         f"{last_n_suffix}, "
+        f"{summary_suffix[2:] + ', ' if summary_suffix else ''}"
+        f"{summary_model_suffix[2:] + ', ' if summary_model_suffix else ''}"
+        f"{summary_reasoning_suffix[2:] + ', ' if summary_reasoning_suffix else ''}"
         f"context_window={DEFAULT_MODEL_CONFIG['context_window']}, "
         f"default_max_output_tokens={DEFAULT_MODEL_CONFIG['default_max_output_tokens']}"
         "]"

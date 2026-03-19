@@ -15,7 +15,10 @@ def memory_snapshot_text(agent: Agent) -> str:
         f"strategy={state.strategy.value} | "
         f"stored_turns={len(state.turns)} | "
         f"visible_turns={len(state.visible_turns())} | "
+        f"unsummarized_turns={state.unsummarized_turn_count()} | "
         f"transcript_chars={state.transcript_character_count()} | "
+        f"summary_turns={state.summarized_turn_count} | "
+        f"summary_chars={state.summary_character_count()} | "
         f"last_input_tokens={state.latest_usage.input_tokens} | "
         f"last_output_tokens={state.latest_usage.output_tokens} | "
         f"previous_response_id={state.previous_response_id or '-'}"
@@ -27,6 +30,8 @@ def print_memory_snapshot(agent: Agent, user_input: str, response_text: str) -> 
     del user_input
     del response_text
     print(memory_snapshot_text(agent))
+    if agent.conversation_state.summary_text:
+        print("[memory-summary] " + agent.conversation_state.summary_text)
 
 
 def main(argv=None):
@@ -51,6 +56,28 @@ def main(argv=None):
         default=3,
         help="Number of turns to keep when using local-last-n conversation history.",
     )
+    parser.add_argument(
+        "--summary-trigger-turns",
+        type=int,
+        default=None,
+        help="When set, summarize older turns after the total stored turn count exceeds this value.",
+    )
+    parser.add_argument(
+        "--summary-keep-recent-turns",
+        type=int,
+        default=2,
+        help="Number of recent turns to keep verbatim after summary compaction.",
+    )
+    parser.add_argument(
+        "--summary-model",
+        default=None,
+        help="Model to use for summary compaction. Defaults to the main conversation model.",
+    )
+    parser.add_argument(
+        "--summary-reasoning-effort",
+        default=None,
+        help="Reasoning effort to use for summary compaction.",
+    )
     args = parser.parse_args(argv)
 
     api_key = open(args.api_key).read().strip()
@@ -69,6 +96,10 @@ def main(argv=None):
         api_key,
         conversation_strategy=ConversationStrategy(args.history_mode),
         last_n_turns=args.last_n_turns,
+        summary_trigger_turns=args.summary_trigger_turns,
+        summary_keep_recent_turns=args.summary_keep_recent_turns,
+        summary_model=args.summary_model,
+        summary_reasoning_effort=args.summary_reasoning_effort,
     )
     print(startup_summary(agent))
     print(memory_snapshot_text(agent))

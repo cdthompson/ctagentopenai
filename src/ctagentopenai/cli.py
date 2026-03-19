@@ -42,6 +42,28 @@ def main(argv=None):
         default=3,
         help="Number of turns to keep when using local-last-n conversation history.",
     )
+    parser.add_argument(
+        "--summary-trigger-turns",
+        type=int,
+        default=None,
+        help="When set, summarize older turns after the total stored turn count exceeds this value.",
+    )
+    parser.add_argument(
+        "--summary-keep-recent-turns",
+        type=int,
+        default=2,
+        help="Number of recent turns to keep verbatim after summary compaction.",
+    )
+    parser.add_argument(
+        "--summary-model",
+        default=None,
+        help="Model to use for summary compaction. Defaults to the main conversation model.",
+    )
+    parser.add_argument(
+        "--summary-reasoning-effort",
+        default=None,
+        help="Reasoning effort to use for summary compaction.",
+    )
     args = parser.parse_args(argv)
 
     api_key = open(args.api_key).read().strip()
@@ -60,6 +82,10 @@ def main(argv=None):
         api_key,
         conversation_strategy=ConversationStrategy(args.history_mode),
         last_n_turns=args.last_n_turns,
+        summary_trigger_turns=args.summary_trigger_turns,
+        summary_keep_recent_turns=args.summary_keep_recent_turns,
+        summary_model=args.summary_model,
+        summary_reasoning_effort=args.summary_reasoning_effort,
     )
     print(startup_summary(agent))
     print()

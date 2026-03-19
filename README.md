@@ -57,10 +57,19 @@ Conversation history behavior:
 - `server-managed`: the app sends `previous_response_id` and lets the API manage prior turns
 - `local-last-n`: the app keeps only the last `N` turns in memory and resends those, which makes forgetting behavior easy to observe
 
+When rolling summary is enabled, unsummarized turns are kept visible until they
+are compacted. This means the agent does not temporarily "forget" old turns
+just because they are waiting to be summarized. After compaction, the summary
+replaces those older turns and the newest raw turns remain verbatim.
+
 Flags that control this behavior:
 
 - `--history-mode {server-managed,local-last-n}` selects the memory strategy
 - `--last-n-turns N` sets how many prior turns are retained for `local-last-n`
+- `--summary-trigger-turns N` enables rolling-summary compaction once stored turns exceed `N`
+- `--summary-keep-recent-turns N` keeps the newest `N` turns raw while summarizing older ones
+- `--summary-model MODEL` selects a model specifically for the summarization step
+- `--summary-reasoning-effort LEVEL` selects the reasoning effort for the summarization step
 - `--input-file PATH` replays one user turn per line from a file
 - `--info` prints per-turn context usage through the logger in addition to the human-facing transcript
 - `--debug` enables deeper request/response diagnostics
@@ -69,6 +78,7 @@ Checked-in example inputs:
 
 - `inputs/exercise-plan-turns.txt` is a general multi-turn example
 - `inputs/last-n-forgetting-turns.txt` is tuned to show forgetting with short intermediate acknowledgements
+- `inputs/summary-compaction-turns.txt` is tuned to force rolling-summary compaction quickly
 - `inputs/keep-all-overflow-turns.txt` is intentionally oversized to stress a very large `local-last-n` setting
 
 ## Limits And Failure Modes
@@ -92,6 +102,8 @@ Practical implications:
 
 - `local-last-n` is the simplest controlled memory policy and is useful for
   demonstrating forgetting.
+- when rolling summary is enabled, the memory stays contiguous: unsummarized
+  turns remain in the prompt until they are replaced by summary text.
 - a very large `local-last-n` value is intentionally naive. It is useful for
   learning, but it will eventually run into either account limits or model-context limits.
 - true long-run memory management belongs in the next milestone, where older
@@ -123,11 +135,24 @@ Run the memory lab against a scripted set of turns:
 uv run ctagentopenai-memory-lab --api-key .openai.key --input-file scenarios/example.txt --history-mode local-last-n --last-n-turns 3
 ```
 
+Run the rolling-summary demo with aggressive compaction:
+
+```bash
+uv run ctagentopenai-memory-lab --api-key .openai.key --input-file inputs/summary-compaction-turns.txt --history-mode local-last-n --last-n-turns 2 --summary-trigger-turns 3 --summary-keep-recent-turns 2
+```
+
+Run the same summary demo with a stronger summary model and reasoning setting:
+
+```bash
+uv run ctagentopenai-memory-lab --api-key .openai.key --input-file inputs/summary-compaction-turns.txt --history-mode local-last-n --last-n-turns 2 --summary-trigger-turns 3 --summary-keep-recent-turns 2 --summary-model gpt-5-mini --summary-reasoning-effort low
+```
+
 List or run the named memory-lab suite:
 
 ```bash
 uv run ctagentopenai-memory-lab-suite --list
 uv run ctagentopenai-memory-lab-suite --api-key .openai.key --case forgetting-last-n-2
+uv run ctagentopenai-memory-lab-suite --api-key .openai.key --case summary-last-n-2-strong
 ```
 
 Enable info logging for per-turn context usage:

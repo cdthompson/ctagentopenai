@@ -16,9 +16,13 @@ class MemoryLabCase:
     input_file: str
     history_mode: str
     last_n_turns: int = 3
+    summary_trigger_turns: int | None = None
+    summary_keep_recent_turns: int = 2
+    summary_model: str | None = None
+    summary_reasoning_effort: str | None = None
 
     def argv(self, api_key_path: str) -> list[str]:
-        return [
+        argv = [
             "--api-key",
             api_key_path,
             "--input-file",
@@ -28,6 +32,20 @@ class MemoryLabCase:
             "--last-n-turns",
             str(self.last_n_turns),
         ]
+        if self.summary_trigger_turns is not None:
+            argv.extend(
+                [
+                    "--summary-trigger-turns",
+                    str(self.summary_trigger_turns),
+                    "--summary-keep-recent-turns",
+                    str(self.summary_keep_recent_turns),
+                ]
+            )
+        if self.summary_model is not None:
+            argv.extend(["--summary-model", self.summary_model])
+        if self.summary_reasoning_effort is not None:
+            argv.extend(["--summary-reasoning-effort", self.summary_reasoning_effort])
+        return argv
 
 
 SUITE_CASES = [
@@ -72,6 +90,28 @@ SUITE_CASES = [
         last_n_turns=3,
     ),
     MemoryLabCase(
+        name="summary-last-n-2-weak",
+        description="Short rolling-summary demo with a narrow local replay window and intentionally weak summarizer settings.",
+        input_file="inputs/summary-compaction-turns.txt",
+        history_mode=ConversationStrategy.LOCAL_LAST_N.value,
+        last_n_turns=2,
+        summary_trigger_turns=3,
+        summary_keep_recent_turns=2,
+        summary_model="gpt-5-nano",
+        summary_reasoning_effort="minimal",
+    ),
+    MemoryLabCase(
+        name="summary-last-n-2-strong",
+        description="Rolling-summary demo with a stronger summary configuration for comparison.",
+        input_file="inputs/summary-compaction-turns.txt",
+        history_mode=ConversationStrategy.LOCAL_LAST_N.value,
+        last_n_turns=2,
+        summary_trigger_turns=3,
+        summary_keep_recent_turns=2,
+        summary_model="gpt-5-mini",
+        summary_reasoning_effort="low",
+    ),
+    MemoryLabCase(
         name="overflow-last-n-99",
         description="Stress case showing how a very wide local replay window grows context quickly.",
         input_file="inputs/keep-all-overflow-turns.txt",
@@ -100,7 +140,10 @@ def print_case_list() -> None:
     for case in SUITE_CASES:
         print(
             f"- {case.name}: {case.description} "
-            f"[input={case.input_file}, history_mode={case.history_mode}, last_n_turns={case.last_n_turns}]"
+            f"[input={case.input_file}, history_mode={case.history_mode}, "
+            f"last_n_turns={case.last_n_turns}, summary_trigger_turns={case.summary_trigger_turns}, "
+            f"summary_keep_recent_turns={case.summary_keep_recent_turns}, "
+            f"summary_model={case.summary_model}, summary_reasoning_effort={case.summary_reasoning_effort}]"
         )
 
 
@@ -108,7 +151,10 @@ def run_case(case: MemoryLabCase, api_key_path: str) -> None:
     print(f"=== Case: {case.name} ===")
     print(case.description)
     print(
-        f"[suite input={case.input_file} history_mode={case.history_mode} last_n_turns={case.last_n_turns}]"
+        f"[suite input={case.input_file} history_mode={case.history_mode} "
+        f"last_n_turns={case.last_n_turns} summary_trigger_turns={case.summary_trigger_turns} "
+        f"summary_keep_recent_turns={case.summary_keep_recent_turns} "
+        f"summary_model={case.summary_model} summary_reasoning_effort={case.summary_reasoning_effort}]"
     )
     print()
     memory_lab.main(case.argv(api_key_path))

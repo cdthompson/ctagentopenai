@@ -8,14 +8,20 @@ class StubConversationState:
         usage,
         strategy=ConversationStrategy.SERVER_MANAGED,
         last_n_turns=3,
+        summary_trigger_turns=None,
+        summary_keep_recent_turns=2,
         turns=None,
         previous_response_id=None,
     ):
         self.latest_usage = usage
         self.strategy = strategy
         self.last_n_turns = last_n_turns
+        self.summary_trigger_turns = summary_trigger_turns
+        self.summary_keep_recent_turns = summary_keep_recent_turns
         self.turns = turns or []
         self.previous_response_id = previous_response_id
+        self.summary_text = ""
+        self.summarized_turn_count = 0
 
     def visible_turns(self):
         if self.strategy == ConversationStrategy.LOCAL_LAST_N:
@@ -27,6 +33,12 @@ class StubConversationState:
             len(turn.user_message) + len(turn.assistant_message)
             for turn in self.visible_turns()
         )
+
+    def summary_character_count(self):
+        return len(self.summary_text)
+
+    def unsummarized_turn_count(self):
+        return len(self.turns) - self.summarized_turn_count
 
 
 class StubUsage:
@@ -47,15 +59,32 @@ def test_cli_one_shot_mode_reads_key_and_prints_response(monkeypatch, capsys, tm
     init_args = {}
 
     class StubAgent:
-        def __init__(self, api_key, conversation_strategy, last_n_turns):
+        def __init__(
+            self,
+            api_key,
+            conversation_strategy,
+            last_n_turns,
+            summary_trigger_turns=None,
+            summary_keep_recent_turns=2,
+            summary_model=None,
+            summary_reasoning_effort=None,
+        ):
             self.api_key = api_key
             init_args["conversation_strategy"] = conversation_strategy
             init_args["last_n_turns"] = last_n_turns
+            init_args["summary_trigger_turns"] = summary_trigger_turns
+            init_args["summary_keep_recent_turns"] = summary_keep_recent_turns
+            init_args["summary_model"] = summary_model
+            init_args["summary_reasoning_effort"] = summary_reasoning_effort
             self.conversation_state = StubConversationState(
                 StubUsage(input_tokens=1000, output_tokens=100, total_tokens=1100),
                 strategy=conversation_strategy,
                 last_n_turns=last_n_turns,
+                summary_trigger_turns=summary_trigger_turns,
+                summary_keep_recent_turns=summary_keep_recent_turns,
             )
+            self.summary_model = summary_model
+            self.summary_reasoning_effort = summary_reasoning_effort
             self.last_response = type("StubResponse", (), {"incomplete_details": None})()
 
         def inference_with_tools(self, user_input):
@@ -96,13 +125,26 @@ def test_cli_input_file_runs_each_line_as_a_turn(monkeypatch, capsys, tmp_path):
     captured = {}
 
     class StubAgent:
-        def __init__(self, api_key, conversation_strategy, last_n_turns):
+        def __init__(
+            self,
+            api_key,
+            conversation_strategy,
+            last_n_turns,
+            summary_trigger_turns=None,
+            summary_keep_recent_turns=2,
+            summary_model=None,
+            summary_reasoning_effort=None,
+        ):
             self.api_key = api_key
             self.conversation_state = StubConversationState(
                 StubUsage(input_tokens=0),
                 strategy=conversation_strategy,
                 last_n_turns=last_n_turns,
+                summary_trigger_turns=summary_trigger_turns,
+                summary_keep_recent_turns=summary_keep_recent_turns,
             )
+            self.summary_model = summary_model
+            self.summary_reasoning_effort = summary_reasoning_effort
             self.last_response = type("StubResponse", (), {"incomplete_details": None})()
 
         def inference_with_tools(self, user_input):
@@ -172,6 +214,34 @@ def test_startup_summary_formats_history_mode_and_limits():
 
     assert runner.startup_summary(agent) == (
         "[startup model=gpt-5-nano, history_mode=local-last-n, last_n_turns=2, context_window=400000, default_max_output_tokens=8192]"
+    )
+
+
+def test_startup_summary_includes_summary_settings_when_enabled():
+    agent = type(
+        "StubAgent",
+        (),
+        {
+            "conversation_state": type(
+                "StubConversationStateWithSummary",
+                (),
+                {
+                    "strategy": ConversationStrategy.LOCAL_LAST_N,
+                    "last_n_turns": 2,
+                    "summary_trigger_turns": 4,
+                    "summary_keep_recent_turns": 2,
+                },
+            )(),
+            "summary_model": "gpt-5-mini",
+            "summary_reasoning_effort": "low",
+        },
+    )()
+
+    assert runner.startup_summary(agent) == (
+        "[startup model=gpt-5-nano, history_mode=local-last-n, last_n_turns=2, "
+        "summary_trigger_turns=4, summary_keep_recent_turns=2, summary_model=gpt-5-mini, "
+        "summary_reasoning_effort=low, context_window=400000, "
+        "default_max_output_tokens=8192]"
     )
 
 
@@ -282,13 +352,26 @@ def test_memory_lab_reports_memory_snapshots(monkeypatch, capsys, tmp_path):
             self.assistant_message = assistant_message
 
     class StubAgent:
-        def __init__(self, api_key, conversation_strategy, last_n_turns):
+        def __init__(
+            self,
+            api_key,
+            conversation_strategy,
+            last_n_turns,
+            summary_trigger_turns=None,
+            summary_keep_recent_turns=2,
+            summary_model=None,
+            summary_reasoning_effort=None,
+        ):
             self.api_key = api_key
             self.conversation_state = StubConversationState(
                 StubUsage(input_tokens=0),
                 strategy=conversation_strategy,
                 last_n_turns=last_n_turns,
+                summary_trigger_turns=summary_trigger_turns,
+                summary_keep_recent_turns=summary_keep_recent_turns,
             )
+            self.summary_model = summary_model
+            self.summary_reasoning_effort = summary_reasoning_effort
             self.last_response = type("StubResponse", (), {"incomplete_details": None})()
 
         def inference_with_tools(self, user_input):
@@ -318,8 +401,28 @@ def test_memory_lab_reports_memory_snapshots(monkeypatch, capsys, tmp_path):
 
     output = capsys.readouterr().out
     assert "Welcome to CTAgentOpenAI memory lab!" in output
-    assert "[memory strategy=local-last-n | stored_turns=0 | visible_turns=0 | transcript_chars=0 | last_input_tokens=0 | last_output_tokens=0 | previous_response_id=-]" in output
-    assert "[memory strategy=local-last-n | stored_turns=1 | visible_turns=1 | transcript_chars=21 | last_input_tokens=1000 | last_output_tokens=100 | previous_response_id=resp_1]" in output
+    assert "[memory strategy=local-last-n | stored_turns=0 | visible_turns=0 | unsummarized_turns=0 | transcript_chars=0 | summary_turns=0 | summary_chars=0 | last_input_tokens=0 | last_output_tokens=0 | previous_response_id=-]" in output
+    assert "[memory strategy=local-last-n | stored_turns=1 | visible_turns=1 | unsummarized_turns=1 | transcript_chars=21 | summary_turns=0 | summary_chars=0 | last_input_tokens=1000 | last_output_tokens=100 | previous_response_id=resp_1]" in output
+
+
+def test_memory_lab_prints_summary_text_when_present(capsys):
+    agent = type(
+        "StubAgent",
+        (),
+        {
+            "conversation_state": StubConversationState(
+                StubUsage(1000, 100, 1100),
+                strategy=ConversationStrategy.LOCAL_LAST_N,
+            ),
+        },
+    )()
+    agent.conversation_state.summary_text = "Older constraints preserved."
+    agent.conversation_state.summarized_turn_count = 3
+
+    memory_lab.print_memory_snapshot(agent, "ignored", "ignored")
+
+    output = capsys.readouterr().out
+    assert "[memory-summary] Older constraints preserved." in output
 
 
 def test_memory_lab_suite_lists_named_cases(capsys):
@@ -329,4 +432,6 @@ def test_memory_lab_suite_lists_named_cases(capsys):
     assert "Memory lab suite cases:" in output
     assert "- exercise-server:" in output
     assert "- forgetting-last-n-2:" in output
+    assert "- summary-last-n-2-weak:" in output
+    assert "- summary-last-n-2-strong:" in output
     assert "- overflow-last-n-99:" in output

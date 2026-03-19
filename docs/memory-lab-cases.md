@@ -10,6 +10,7 @@ comparing different memory strategies. These cases are not white-box tests.
 They are replayable demonstrations that let you inspect:
 
 - how many turns are stored versus visible
+- how many turns are still unsummarized
 - transcript growth over time
 - context-token growth across strategies
 - whether important facts are retained or forgotten
@@ -128,6 +129,37 @@ What to watch:
 - whether one additional remembered turn changes the final summary materially
 - how much transcript and token growth you pay for a wider window
 
+### `summary-last-n-2-weak`
+
+Input: `inputs/summary-compaction-turns.txt`
+
+Why it exists:
+
+- intentionally forces rolling-summary compaction on a short conversation
+- demonstrates the difference between raw visible turns and compressed older memory
+
+What to watch:
+
+- `summary_turns` should become nonzero after the trigger threshold is crossed
+- `summary_chars` should increase while `unsummarized_turns` drops after compaction
+- `[memory-summary]` output should show the current compacted memory text
+- the final answer should recover earlier constraints better than plain `forgetting-last-n-2`
+
+### `summary-last-n-2-strong`
+
+Input: `inputs/summary-compaction-turns.txt`
+
+Why it exists:
+
+- compares the same short rolling-summary scenario with a stronger summarizer configuration
+- demonstrates that summary quality can depend on both model choice and reasoning setting
+
+What to watch:
+
+- whether the summary text captures user constraints instead of assistant acknowledgements
+- whether summary quality improves while the memory mechanism itself stays the same
+- whether the final answer preserves earlier constraints more faithfully
+
 ### `overflow-last-n-99`
 
 Input: `inputs/keep-all-overflow-turns.txt`
@@ -162,6 +194,8 @@ Use these pairs when you want the fastest signal:
 - `exercise-last-n-99` vs `exercise-last-n-2`
 - `forgetting-server` vs `forgetting-last-n-2`
 - `forgetting-last-n-2` vs `forgetting-last-n-3`
+- `forgetting-last-n-2` vs `summary-last-n-2-weak`
+- `summary-last-n-2-weak` vs `summary-last-n-2-strong`
 - `overflow-server` vs `overflow-last-n-99`
 
 ## What To Record
@@ -174,5 +208,5 @@ As you run the suite, useful notes to capture are:
 - which scenarios will be useful again after pinned facts and summaries are added
 
 The same suite should stay useful for the next memory milestone. Once pinned
-facts and summarization exist, add new cases here rather than scattering notes
+facts and summarization change, add new cases here rather than scattering notes
 through the README.

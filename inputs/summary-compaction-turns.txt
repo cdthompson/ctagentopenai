@@ -1,0 +1,6 @@
+I need help planning a weeknight meal routine. Acknowledge only with: noted.
+Constraint one: dinners must be dairy-free. Acknowledge only with: noted.
+Constraint two: dinners must be gluten-free. Acknowledge only with: noted.
+Constraint three: each dinner must take under 30 minutes. Acknowledge only with: noted.
+Constraint four: total weekly budget should stay under $90. Acknowledge only with: noted.
+Now summarize all constraints and propose a 3-day dinner plan.

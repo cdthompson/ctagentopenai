@@ -16,14 +16,27 @@ MODEL_CONFIG = {
         "context_window": 400_000,
         "max_output_tokens": 128_000,
         "default_max_output_tokens": 8192,
+        "reasoning_efforts": ["minimal", "low", "medium", "high"],
+    },
+    "gpt-5-mini": {
+        "context_window": 400_000,
+        "max_output_tokens": 128_000,
+        "default_max_output_tokens": 8192,
+        "reasoning_efforts": ["none", "low", "medium", "high", "xhigh"],
     }
 }
 DEFAULT_MODEL_NAME = "gpt-5-nano"
 DEFAULT_MODEL_CONFIG = MODEL_CONFIG[DEFAULT_MODEL_NAME]
 MAX_TOOL_CALLS = 5
+SUMMARY_MAX_OUTPUT_TOKENS = 1024
 SOUL_PROMPT = (
     "You are a curmudgeonly assistant who is very direct and to the point. "
     "If you don't know something, say you don't know."
+)
+SUMMARY_SYSTEM_PROMPT = (
+    "You compress older conversation turns into a concise working memory summary. "
+    "Preserve durable constraints, preferences, goals, decisions, and unresolved tasks. "
+    "Drop filler and avoid speculation. Keep the summary short and factual."
 )
 
 logger = getLogger(__name__)
@@ -59,9 +72,13 @@ class TurnRecord:
 class ConversationState:
     strategy: ConversationStrategy = ConversationStrategy.SERVER_MANAGED
     last_n_turns: int = 3
+    summary_trigger_turns: int | None = None
+    summary_keep_recent_turns: int = 2
     turns: list[TurnRecord] = field(default_factory=list)
     previous_response_id: str | None = None
     latest_usage: UsageSnapshot = field(default_factory=UsageSnapshot)
+    summary_text: str = ""
+    summarized_turn_count: int = 0
 
     def build_input(self, user_input: str, system_prompt: str) -> list[dict[str, str]]:
         messages = [
@@ -70,6 +87,13 @@ class ConversationState:
                 "content": build_system_prompt(system_prompt, self.strategy, self.latest_usage),
             }
         ]
+        if self.summary_text:
+            messages.append(
+                {
+                    "role": "system",
+                    "content": "Summary of earlier conversation:\n" + self.summary_text,
+                }
+            )
         for turn in self.visible_turns():
             messages.append({"role": "user", "content": turn.user_message})
             messages.append({"role": "assistant", "content": turn.assistant_message})
@@ -78,6 +102,8 @@ class ConversationState:
 
     def visible_turns(self) -> list[TurnRecord]:
         if self.strategy == ConversationStrategy.LOCAL_LAST_N:
+            if self.summary_trigger_turns is not None:
+                return self.turns[self.summarized_turn_count :]
             return self.turns[-self.last_n_turns :]
         return []
 
@@ -103,6 +129,33 @@ class ConversationState:
             len(turn.user_message) + len(turn.assistant_message)
             for turn in self.visible_turns()
         )
+
+    def summary_character_count(self) -> int:
+        return len(self.summary_text)
+
+    def unsummarized_turn_count(self) -> int:
+        return len(self.turns) - self.summarized_turn_count
+
+    def summary_needed(self) -> bool:
+        if self.strategy != ConversationStrategy.LOCAL_LAST_N:
+            return False
+        if self.summary_trigger_turns is None:
+            return False
+        if len(self.turns) <= self.summary_trigger_turns:
+            return False
+        cutoff = len(self.turns) - self.summary_keep_recent_turns
+        return cutoff > self.summarized_turn_count
+
+    def turns_pending_summary(self) -> list[TurnRecord]:
+        cutoff = len(self.turns) - self.summary_keep_recent_turns
+        if cutoff <= self.summarized_turn_count:
+            return []
+        return self.turns[self.summarized_turn_count:cutoff]
+
+    def apply_summary(self, summary_text: str) -> None:
+        cutoff = len(self.turns) - self.summary_keep_recent_turns
+        self.summary_text = summary_text
+        self.summarized_turn_count = max(self.summarized_turn_count, cutoff)
 
 
 def usage_snapshot_from_response(response) -> UsageSnapshot:
@@ -146,6 +199,20 @@ def build_system_prompt(
 def usage_percentage(usage: UsageSnapshot) -> float:
     context_window = DEFAULT_MODEL_CONFIG["context_window"]
     return (usage.input_tokens / context_window) * 100 if context_window else 0.0
+
+
+def lowest_reasoning_effort(model_config: dict[str, Any]) -> str | None:
+    efforts = model_config.get("reasoning_efforts", [])
+    if not efforts:
+        return None
+    return efforts[0]
+
+
+def get_model_config(model_name: str) -> dict[str, Any]:
+    try:
+        return MODEL_CONFIG[model_name]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported model: {model_name}") from exc
 
 
 def get_tool_by_name(tools: list[Tool], name: str) -> Tool:
@@ -206,9 +273,30 @@ class Agent:
         tools: list[Tool] | None = None,
         conversation_strategy: ConversationStrategy = ConversationStrategy.SERVER_MANAGED,
         last_n_turns: int = 3,
+        summary_trigger_turns: int | None = None,
+        summary_keep_recent_turns: int = 2,
+        summary_model: str | None = None,
+        summary_reasoning_effort: str | None = None,
     ):
         if last_n_turns < 1:
             raise ValueError("last_n_turns must be at least 1")
+        if summary_trigger_turns is not None and summary_trigger_turns < 1:
+            raise ValueError("summary_trigger_turns must be at least 1")
+        if summary_keep_recent_turns < 1:
+            raise ValueError("summary_keep_recent_turns must be at least 1")
+        if summary_trigger_turns is not None and summary_keep_recent_turns > last_n_turns:
+            raise ValueError("summary_keep_recent_turns cannot exceed last_n_turns")
+        self.summary_model = summary_model or DEFAULT_MODEL_NAME
+        self.summary_model_config = get_model_config(self.summary_model)
+        if summary_reasoning_effort is None:
+            self.summary_reasoning_effort = lowest_reasoning_effort(self.summary_model_config)
+        else:
+            if summary_reasoning_effort not in self.summary_model_config["reasoning_efforts"]:
+                raise ValueError(
+                    f"Unsupported summary reasoning effort '{summary_reasoning_effort}' "
+                    f"for model '{self.summary_model}'"
+                )
+            self.summary_reasoning_effort = summary_reasoning_effort
         self.client = OpenAI(api_key=api_key)
         self.tools = tools or list(DEFAULT_TOOLS)
         self.openai_tools = build_openai_tools(self.tools)
@@ -217,6 +305,8 @@ class Agent:
         self.conversation_state = ConversationState(
             strategy=conversation_strategy,
             last_n_turns=last_n_turns,
+            summary_trigger_turns=summary_trigger_turns,
+            summary_keep_recent_turns=summary_keep_recent_turns,
         )
 
     def log_context_usage(self) -> None:
@@ -229,6 +319,76 @@ class Agent:
             self.conversation_state.latest_usage.output_tokens,
             self.conversation_state.latest_usage.total_tokens,
         )
+
+    def summarize_turns(
+        self,
+        existing_summary: str,
+        turns: list[TurnRecord],
+    ) -> str:
+        turn_lines = []
+        for turn in turns:
+            turn_lines.append(f"User: {turn.user_message}")
+            turn_lines.append(f"Assistant: {turn.assistant_message}")
+        existing_block = existing_summary or "(none)"
+        response = self.client.responses.create(
+            model=self.summary_model,
+            input=[
+                {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+                {
+                    "role": "user",
+                    "content": (
+                        "Existing summary:\n"
+                        f"{existing_block}\n\n"
+                        "New older turns to merge:\n"
+                        + "\n".join(turn_lines)
+                    ),
+                },
+            ],
+            store=False,
+            max_output_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
+            **(
+                {"reasoning": {"effort": self.summary_reasoning_effort}}
+                if self.summary_reasoning_effort is not None
+                else {}
+            ),
+        )
+        logger.debug("Summary response: %s", response.model_dump_json(indent=2))
+        if response.error:
+            logger.error("Error in summary generation: %s", response.error)
+            raise AgentExecutionHalt("[summary generation failed: API returned an error]")
+        if response.incomplete_details:
+            logger.error("Incomplete summary response: %s", response.incomplete_details)
+            raise AgentExecutionHalt(
+                "[summary generation failed: response was truncated before summary text was produced]"
+            )
+
+        summary_text = response.output_text.strip()
+        if not summary_text:
+            logger.error("Summary generation returned empty output.")
+            raise AgentExecutionHalt(
+                "[summary generation failed: response contained no summary text]"
+            )
+        return summary_text
+
+    def maybe_update_summary(self) -> None:
+        state = self.conversation_state
+        if not state.summary_needed():
+            return
+
+        turns_to_summarize = state.turns_pending_summary()
+        logger.info(
+            "Updating conversation summary: pending_turns=%s existing_summary_chars=%s",
+            len(turns_to_summarize),
+            state.summary_character_count(),
+        )
+        summary_text = self.summarize_turns(state.summary_text, turns_to_summarize)
+        if summary_text:
+            state.apply_summary(summary_text)
+            logger.info(
+                "Updated conversation summary: summarized_turns=%s summary_chars=%s",
+                state.summarized_turn_count,
+                state.summary_character_count(),
+            )
 
     def inference(self, input, previous_response_id=None):
         """Run inference on the input using the OpenAI API."""
@@ -312,6 +472,7 @@ class Agent:
 
         self.last_response = response
         self.conversation_state.record_turn(input, response.output_text, response)
+        self.maybe_update_summary()
         self.log_context_usage()
         logger.debug("Response id: %s", self.conversation_state.previous_response_id)
         return response.output_text, response.id
