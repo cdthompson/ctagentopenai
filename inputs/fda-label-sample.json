@@ -1,0 +1,100 @@
+{
+  "results": [
+    {
+      "set_id": "sertraline-set-v1",
+      "effective_time": "20240101",
+      "boxed_warning": [
+        "Antidepressants increased the risk of suicidal thoughts and behavior in pediatric and young adult patients in short-term studies."
+      ],
+      "indications_and_usage": [
+        "Sertraline tablets are indicated for the treatment of major depressive disorder."
+      ],
+      "contraindications": [
+        "Sertraline is contraindicated in patients taking monoamine oxidase inhibitors."
+      ],
+      "warnings_and_precautions": [
+        "Serotonin syndrome may occur when sertraline is used with other serotonergic drugs."
+      ],
+      "adverse_reactions": [
+        "The most common adverse reactions include nausea, diarrhea, tremor, dyspepsia, decreased appetite, hyperhidrosis, ejaculation failure, and fatigue."
+      ],
+      "drug_interactions": [
+        "Monitor for serotonin syndrome when sertraline is used with other serotonergic drugs."
+      ],
+      "use_in_specific_populations": [
+        "Available data do not establish an increased risk of major birth defects with sertraline use during pregnancy."
+      ],
+      "openfda": {
+        "generic_name": ["sertraline"],
+        "brand_name": ["Zoloft"],
+        "product_type": ["HUMAN PRESCRIPTION DRUG"]
+      }
+    },
+    {
+      "set_id": "ibuprofen-set-v2",
+      "effective_time": "20240202",
+      "boxed_warning": [
+        "Nonsteroidal anti-inflammatory drugs cause an increased risk of serious cardiovascular thrombotic events and gastrointestinal bleeding."
+      ],
+      "indications_and_usage": [
+        "Ibuprofen tablets are indicated for relief of mild to moderate pain."
+      ],
+      "dosage_and_administration": [
+        "Use the lowest effective dose for the shortest duration consistent with individual treatment goals."
+      ],
+      "contraindications": [
+        "Ibuprofen is contraindicated in patients with known hypersensitivity to ibuprofen and in the setting of coronary artery bypass graft surgery."
+      ],
+      "warnings_and_precautions": [
+        "Ibuprofen may cause serious gastrointestinal adverse events including bleeding, ulceration, and perforation."
+      ],
+      "adverse_reactions": [
+        "Common adverse reactions include nausea, abdominal pain, dizziness, rash, and dyspepsia."
+      ],
+      "drug_interactions": [
+        "Use caution with anticoagulants because concomitant use may increase bleeding risk."
+      ],
+      "use_in_specific_populations": [
+        "Avoid use of ibuprofen at about 30 weeks gestation and later in pregnancy because it may cause premature closure of the fetal ductus arteriosus."
+      ],
+      "openfda": {
+        "generic_name": ["ibuprofen"],
+        "brand_name": ["Advil"],
+        "product_type": ["HUMAN OTC DRUG"]
+      }
+    },
+    {
+      "set_id": "warfarin-set-v3",
+      "effective_time": "20240303",
+      "boxed_warning": [
+        "Warfarin can cause major or fatal bleeding."
+      ],
+      "indications_and_usage": [
+        "Warfarin sodium tablets are indicated to reduce the risk of death, recurrent myocardial infarction, and thromboembolic events."
+      ],
+      "dosage_and_administration": [
+        "Individualize the dose of warfarin sodium according to the patient's INR and the condition being treated."
+      ],
+      "contraindications": [
+        "Warfarin is contraindicated in pregnancy except in women with mechanical heart valves and in patients with hemorrhagic tendencies or blood dyscrasias."
+      ],
+      "warnings_and_precautions": [
+        "Conduct regular INR monitoring to reduce the risk of bleeding complications."
+      ],
+      "adverse_reactions": [
+        "The major adverse reaction is fatal or nonfatal hemorrhage from any tissue or organ."
+      ],
+      "drug_interactions": [
+        "Many drugs increase or decrease the anticoagulant effect of warfarin. Closely monitor the INR when starting or stopping other drugs."
+      ],
+      "use_in_specific_populations": [
+        "Warfarin may cause fetal harm when administered to a pregnant woman."
+      ],
+      "openfda": {
+        "generic_name": ["warfarin"],
+        "brand_name": ["Coumadin"],
+        "product_type": ["HUMAN PRESCRIPTION DRUG"]
+      }
+    }
+  ]
+}

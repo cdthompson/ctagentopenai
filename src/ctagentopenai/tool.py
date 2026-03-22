@@ -3,9 +3,12 @@ from __future__ import annotations
 import subprocess
 from datetime import datetime
 from dataclasses import dataclass
+import json
 from logging import getLogger
 from pathlib import Path
 from typing import Any
+
+from .retrieval import LabelCorpus
 
 
 logger = getLogger(__name__)
@@ -40,6 +43,9 @@ class Tool:
 
     def invoke(self, call: ToolCall) -> ToolResult:
         raise NotImplementedError("Tool subclasses must implement invoke().")
+
+    def system_prompt_guidance(self) -> str:
+        return ""
 
 
 class FavoriteColorTool(Tool):
@@ -218,6 +224,86 @@ class ReadFileTool(Tool):
             )
 
         return ToolResult(call_id=call.call_id, tool_name=self.spec.name, output=output)
+
+
+class QueryLabelTool(Tool):
+    spec = ToolSpec(
+        name="query_label",
+        description="Retrieve the most relevant passages from a single FDA drug label for a user question.",
+        input_schema={
+            "type": "object",
+            "properties": {
+                "drug_name": {
+                    "type": "string",
+                    "description": "One brand or generic drug name, such as 'ibuprofen' or 'sertraline'.",
+                },
+                "question": {
+                    "type": "string",
+                    "description": "The user's question about the drug label.",
+                },
+                "top_k": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10,
+                    "description": "Optional number of passages to retrieve. Defaults to 5.",
+                },
+            },
+            "required": ["drug_name", "question", "top_k"],
+            "additionalProperties": False,
+        },
+    )
+
+    def __init__(self, db_path: str | Path, retrieval_method: str = "bm25"):
+        self.corpus = LabelCorpus(Path(db_path))
+        self.retrieval_method = retrieval_method
+
+    def invoke(self, call: ToolCall) -> ToolResult:
+        arguments = call.arguments or {}
+        drug_name = arguments.get("drug_name", "")
+        question = arguments.get("question", "")
+        top_k = arguments.get("top_k", 5)
+        try:
+            retrieval = self.corpus.query_label(
+                drug_name=drug_name,
+                question=question,
+                top_k=top_k,
+                method=self.retrieval_method,
+            )
+            payload = json.loads(retrieval.to_json())
+            payload["retrieval_method"] = self.retrieval_method
+            return ToolResult(
+                call_id=call.call_id,
+                tool_name=self.spec.name,
+                output=json.dumps(payload, indent=2),
+            )
+        except LookupError as exc:
+            return ToolResult(
+                call_id=call.call_id,
+                tool_name=self.spec.name,
+                output=str(exc),
+                is_error=True,
+            )
+        except Exception as exc:  # pragma: no cover - defensive error path
+            logger.warning("Error querying FDA label corpus: %s", exc)
+            return ToolResult(
+                call_id=call.call_id,
+                tool_name=self.spec.name,
+                output="Failed to query the FDA label corpus.",
+                is_error=True,
+            )
+
+    def system_prompt_guidance(self) -> str:
+        return (
+            "You answer questions about FDA drug labels.\n"
+            "You have access to a tool named query_label that retrieves the most relevant sections "
+            "from a single drug's FDA label.\n"
+            "Use query_label whenever the user asks about side effects, contraindications, warnings, "
+            "boxed warnings, pregnancy, drug interactions, dosing, or use in specific populations.\n"
+            "Do not invent label content from memory. Base the answer only on retrieved passages and cite "
+            "the supporting label section names.\n"
+            "If the user does not specify a drug name, ask for one. If the user asks about multiple drugs "
+            "or broad cross-drug search, explain that this version supports one drug label at a time."
+        )
 
 
 def _resolve_project_path(path_text: str) -> tuple[Path | None, str | None]:

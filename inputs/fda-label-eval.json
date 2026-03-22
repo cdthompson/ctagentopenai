@@ -1,0 +1,32 @@
+[
+  {
+    "drug_name": "sertraline",
+    "question": "What are the common adverse reactions?",
+    "expected_section": "adverse reactions"
+  },
+  {
+    "drug_name": "sertraline",
+    "question": "What does the label say about MAO inhibitors?",
+    "expected_section": "contraindications"
+  },
+  {
+    "drug_name": "ibuprofen",
+    "question": "What does the label say about use in pregnancy?",
+    "expected_section": "use in specific populations"
+  },
+  {
+    "drug_name": "ibuprofen",
+    "question": "How should ibuprofen be dosed?",
+    "expected_section": "dosage and administration"
+  },
+  {
+    "drug_name": "warfarin",
+    "question": "What monitoring is recommended?",
+    "expected_section": "warnings and precautions"
+  },
+  {
+    "drug_name": "warfarin",
+    "question": "What drug interactions are mentioned?",
+    "expected_section": "drug interactions"
+  }
+]

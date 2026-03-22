@@ -181,6 +181,59 @@ def test_cli_input_file_runs_each_line_as_a_turn(monkeypatch, capsys, tmp_path):
     assert captured["turns"] == ["first turn", "second turn"]
 
 
+def test_cli_enables_label_query_tool_when_label_db_is_provided(monkeypatch, capsys, tmp_path):
+    key_file = tmp_path / "openai.key"
+    key_file.write_text("test-key\n")
+    captured = {}
+
+    class StubAgent:
+        def __init__(
+            self,
+            api_key,
+            tools,
+            conversation_strategy,
+            last_n_turns,
+            summary_trigger_turns=None,
+            summary_keep_recent_turns=2,
+            summary_model=None,
+            summary_reasoning_effort=None,
+        ):
+            captured["tool_names"] = [tool.spec.name for tool in tools]
+            self.api_key = api_key
+            self.conversation_state = StubConversationState(
+                StubUsage(input_tokens=1000, output_tokens=100, total_tokens=1100),
+                strategy=conversation_strategy,
+                last_n_turns=last_n_turns,
+                summary_trigger_turns=summary_trigger_turns,
+                summary_keep_recent_turns=summary_keep_recent_turns,
+            )
+            self.summary_model = summary_model
+            self.summary_reasoning_effort = summary_reasoning_effort
+            self.last_response = type("StubResponse", (), {"incomplete_details": None})()
+
+        def inference_with_tools(self, user_input):
+            return "hi there", "resp_1"
+
+    monkeypatch.setattr(cli, "Agent", StubAgent)
+
+    cli.main(
+        [
+            "--api-key",
+            str(key_file),
+            "--input",
+            "hello",
+            "--label-db",
+            str(tmp_path / "labels.sqlite"),
+            "--label-retrieval-method",
+            "grep",
+        ]
+    )
+
+    output = capsys.readouterr()
+    assert "query_label" in captured["tool_names"]
+    assert "hi there" in output.out
+
+
 def test_cli_prompt_and_usage_helpers_format_current_usage():
     agent = type(
         "StubAgent",

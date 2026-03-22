@@ -2,7 +2,29 @@
 
 This project is for experimenting with the OpenAI Python SDK while building up
 agent behavior from first principles: inference, conversation loops, local
-tools, and related workflow patterns.
+tools, and related workflow patterns. It also allowed me to try out Codex, as a contrast
+to Claude and Kiro which I had more familiarity with.
+
+I had a particular method of going about this, which was to see behavior at the limits
+without needing to push up token usage and costs. So the codebase has some flags
+that allow for exercising the boundaries of operation which one many never encounter
+in a production agent, such as: intentionally forgetting recent context, using a 
+poor performing model when summarizing.
+
+While using Codex and VSCode, there was plenty of conversation to
+explore what production agents might do (e.g. robust persistent memory) vs. what a scaled down
+version would be for this toy agent (simple in-memory summarization only).
+
+I could continue expansion, such as adding support for other cloud and local models, but I believe
+the patterns will be similar at this level of abstraction and I'd rather move up the stack.
+For example, [Claude Agent SDK](https://nader.substack.com/p/the-complete-guide-to-building-agents)
+takes care of the agent loop and tooling, as does [pi-mono](https://github.com/badlogic/pi-mono/tree/main)
+and [Strands](https://strandsagents.com/). Even no-code or little-code approaches such as Claude desktop
+app with it's built-in skills means business outcomes can be achieved without having to use a coded
+harness at all - just bring custom data and connectors to the table. My takeaway, even if i never touch
+agentic-loop code again, is a hightened understanding of the lower-level so that I have more intuition
+when working on business outcomes.
+
 
 ## Requirements
 
@@ -44,25 +66,44 @@ Build artifacts are written to `dist/`.
 
 ## Features
 
-Current agent capabilities:
+The repo currently explores three main agent topics.
 
-- conversational CLI with interactive, one-shot, and file-driven multi-turn input
-- local tool calling inside a model/tool/model loop
-- explicit conversation-history control for comparing server-managed and app-managed memory
-- per-turn context usage display as both a percentage and token counts
-- visible handling of truncated responses when the model hits `max_output_tokens`
+### 1. Tool Calling
 
-Conversation history behavior:
+The base agent supports a conversational CLI with interactive, one-shot, and
+file-driven multi-turn input. Inside a turn, the model can call local tools in
+a model/tool/model loop.
+
+Current local tools include:
+
+- `favorite_color`
+- `calculator`
+- `get_time`
+- `list_files`
+- `read_file`
+- `query_label` when a local FDA label corpus is enabled
+
+Useful controls:
+
+- `--input-file PATH` replays one user turn per line from a file
+- `--info` prints per-turn context usage through the logger
+- `--debug` enables deeper request/response diagnostics
+
+### 2. Memory And Context Management
+
+The repo compares server-managed conversation state with app-managed history and
+makes context growth visible with per-turn token reporting.
+
+Supported history modes:
 
 - `server-managed`: the app sends `previous_response_id` and lets the API manage prior turns
-- `local-last-n`: the app keeps only the last `N` turns in memory and resends those, which makes forgetting behavior easy to observe
+- `local-last-n`: the app keeps only the last `N` turns in memory and resends those
 
-When rolling summary is enabled, unsummarized turns are kept visible until they
-are compacted. This means the agent does not temporarily "forget" old turns
-just because they are waiting to be summarized. After compaction, the summary
-replaces those older turns and the newest raw turns remain verbatim.
+When rolling summary is enabled, unsummarized turns stay visible until they are
+compacted. After compaction, the summary replaces the older turns and the most
+recent turns stay verbatim.
 
-Flags that control this behavior:
+Memory controls:
 
 - `--history-mode {server-managed,local-last-n}` selects the memory strategy
 - `--last-n-turns N` sets how many prior turns are retained for `local-last-n`
@@ -70,16 +111,36 @@ Flags that control this behavior:
 - `--summary-keep-recent-turns N` keeps the newest `N` turns raw while summarizing older ones
 - `--summary-model MODEL` selects a model specifically for the summarization step
 - `--summary-reasoning-effort LEVEL` selects the reasoning effort for the summarization step
-- `--input-file PATH` replays one user turn per line from a file
-- `--info` prints per-turn context usage through the logger in addition to the human-facing transcript
-- `--debug` enables deeper request/response diagnostics
 
-Checked-in example inputs:
+Checked-in memory examples:
 
 - `inputs/exercise-plan-turns.txt` is a general multi-turn example
 - `inputs/last-n-forgetting-turns.txt` is tuned to show forgetting with short intermediate acknowledgements
 - `inputs/summary-compaction-turns.txt` is tuned to force rolling-summary compaction quickly
 - `inputs/keep-all-overflow-turns.txt` is intentionally oversized to stress a very large `local-last-n` setting
+
+### 3. Retrieval And Knowledge Access
+
+The current retrieval milestone adds an FDA drug-label corpus that can be built
+locally, indexed into SQLite, and queried through a tool-facing interface.
+
+Current retrieval capabilities:
+
+- section-aware chunking of FDA-style label records
+- alias resolution for generic and brand names
+- `grep`-style free-text retrieval over the chunk corpus
+- BM25 scoring over the same chunk set for comparison
+- `query_label` tool integration for single-drug label questions
+
+Retrieval controls:
+
+- `--label-db PATH` enables the `query_label` tool against a local FDA label corpus
+- `--label-retrieval-method {bm25,grep}` selects the retrieval backend for `query_label`
+
+Checked-in retrieval examples:
+
+- `inputs/fda-label-sample.json` is a small FDA-style label corpus for local retrieval demos
+- `inputs/fda-label-eval.json` is a small eval set for comparing `grep` and BM25 retrieval
 
 ## Limits And Failure Modes
 
@@ -171,6 +232,30 @@ Run a multi-turn session from a file where each line is one turn:
 
 ```bash
 uv run ctagentopenai --api-key .openai.key --input-file inputs/exercise-plan-turns.txt
+```
+
+Build a local FDA label corpus from the checked-in sample data:
+
+```bash
+uv run ctagentopenai-label-corpus build --db .artifacts/fda-labels.sqlite --source inputs/fda-label-sample.json
+```
+
+Query the local corpus directly with BM25:
+
+```bash
+uv run ctagentopenai-label-corpus query --db .artifacts/fda-labels.sqlite --drug ibuprofen --question "What does the label say about pregnancy?"
+```
+
+Compare `grep` and BM25 on the bundled eval set:
+
+```bash
+uv run ctagentopenai-label-corpus eval --db .artifacts/fda-labels.sqlite --eval-file inputs/fda-label-eval.json
+```
+
+Run the agent with the FDA label retrieval tool enabled:
+
+```bash
+uv run ctagentopenai --api-key .openai.key --label-db .artifacts/fda-labels.sqlite --input "What does the label say about pregnancy for ibuprofen?"
 ```
 
 The checked-in `inputs/last-n-forgetting-turns.txt` file is designed to keep

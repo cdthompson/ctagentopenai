@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import openai
@@ -25,9 +26,14 @@ from ctagentopenai.tool import (
     FavoriteColorTool,
     GetTimeTool,
     ListFilesTool,
+    QueryLabelTool,
     ReadFileTool,
     ToolCall,
 )
+from ctagentopenai.retrieval import LabelCorpus, latest_documents_by_drug
+
+
+FIXTURE_DIR = Path(__file__).resolve().parents[1] / "inputs"
 
 
 class FakeResponses:
@@ -209,6 +215,33 @@ def test_get_time_tool_returns_timestamp():
 
     assert result.is_error is False
     assert result.output
+
+
+def test_query_label_tool_schema_requires_all_declared_fields_under_strict_mode():
+    tool = build_openai_tools([QueryLabelTool("/tmp/labels.sqlite")])[0]
+
+    assert tool["name"] == "query_label"
+    assert tool["parameters"]["required"] == ["drug_name", "question", "top_k"]
+
+
+def test_query_label_tool_queries_local_corpus(tmp_path):
+    source_path = tmp_path / "labels.json"
+    source_path.write_text((FIXTURE_DIR / "fda-label-sample.json").read_text(encoding="utf-8"), encoding="utf-8")
+    db_path = tmp_path / "labels.sqlite"
+    LabelCorpus(db_path).rebuild(latest_documents_by_drug([source_path]))
+
+    result = QueryLabelTool(db_path).invoke(
+        ToolCall(
+            tool_name="query_label",
+            call_id="call_1",
+            arguments={"drug_name": "ibuprofen", "question": "What does the label say about pregnancy?"},
+        )
+    )
+
+    payload = json.loads(result.output)
+    assert result.is_error is False
+    assert payload["drug_name_resolved"] == "ibuprofen"
+    assert payload["matches"][0]["section"] == "use in specific populations"
 
 
 def test_list_files_tool_lists_directory_contents(monkeypatch, tmp_path):

@@ -12,3 +12,6 @@ wheels/
 
 # Credentials
 *.key
+
+# Local datasets
+.artifacts/

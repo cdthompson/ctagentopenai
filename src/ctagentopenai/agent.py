@@ -196,6 +196,11 @@ def build_system_prompt(
     )
 
 
+def tool_guidance_text(tools: list[Tool]) -> str:
+    guidance = [tool.system_prompt_guidance() for tool in tools if tool.system_prompt_guidance()]
+    return "\n\n".join(guidance)
+
+
 def usage_percentage(usage: UsageSnapshot) -> float:
     context_window = DEFAULT_MODEL_CONFIG["context_window"]
     return (usage.input_tokens / context_window) * 100 if context_window else 0.0
@@ -300,7 +305,8 @@ class Agent:
         self.client = OpenAI(api_key=api_key)
         self.tools = tools or list(DEFAULT_TOOLS)
         self.openai_tools = build_openai_tools(self.tools)
-        self.system_prompt = SOUL_PROMPT
+        extra_guidance = tool_guidance_text(self.tools)
+        self.system_prompt = SOUL_PROMPT if not extra_guidance else f"{SOUL_PROMPT}\n\n{extra_guidance}"
         self.last_response = None
         self.conversation_state = ConversationState(
             strategy=conversation_strategy,

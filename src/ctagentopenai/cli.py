@@ -17,6 +17,7 @@ import sys
 
 from .agent import Agent, ConversationStrategy
 from .runner import print_agent_response, run_agent_loop, run_turns, startup_summary
+from .tool import DEFAULT_TOOLS, QueryLabelTool
 
 
 def main(argv=None):
@@ -64,6 +65,17 @@ def main(argv=None):
         default=None,
         help="Reasoning effort to use for summary compaction.",
     )
+    parser.add_argument(
+        "--label-db",
+        default=None,
+        help="Path to a local FDA label SQLite corpus. Enables the query_label tool when set.",
+    )
+    parser.add_argument(
+        "--label-retrieval-method",
+        choices=["bm25", "grep"],
+        default="bm25",
+        help="Retrieval method to use for the FDA label query tool.",
+    )
     args = parser.parse_args(argv)
 
     api_key = open(args.api_key).read().strip()
@@ -78,15 +90,22 @@ def main(argv=None):
     print("Welcome to CTAgentOpenAI!")
     print()
 
-    agent = Agent(
-        api_key,
-        conversation_strategy=ConversationStrategy(args.history_mode),
-        last_n_turns=args.last_n_turns,
-        summary_trigger_turns=args.summary_trigger_turns,
-        summary_keep_recent_turns=args.summary_keep_recent_turns,
-        summary_model=args.summary_model,
-        summary_reasoning_effort=args.summary_reasoning_effort,
-    )
+    tools = list(DEFAULT_TOOLS)
+    if args.label_db:
+        tools.append(QueryLabelTool(args.label_db, retrieval_method=args.label_retrieval_method))
+
+    agent_kwargs = {
+        "conversation_strategy": ConversationStrategy(args.history_mode),
+        "last_n_turns": args.last_n_turns,
+        "summary_trigger_turns": args.summary_trigger_turns,
+        "summary_keep_recent_turns": args.summary_keep_recent_turns,
+        "summary_model": args.summary_model,
+        "summary_reasoning_effort": args.summary_reasoning_effort,
+    }
+    if args.label_db:
+        agent_kwargs["tools"] = tools
+
+    agent = Agent(api_key, **agent_kwargs)
     print(startup_summary(agent))
     print()
 
