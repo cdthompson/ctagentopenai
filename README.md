@@ -2,28 +2,12 @@
 
 This project is for experimenting with the OpenAI Python SDK while building up
 agent behavior from first principles: inference, conversation loops, local
-tools, and related workflow patterns. It also allowed me to try out Codex, as a contrast
-to Claude and Kiro which I had more familiarity with.
+tools, memory policies, retrieval, and related workflow patterns.
 
-I had a particular method of going about this, which was to see behavior at the limits
-without needing to push up token usage and costs. So the codebase has some flags
-that allow for exercising the boundaries of operation which one many never encounter
-in a production agent, such as: intentionally forgetting recent context, using a 
-poor performing model when summarizing.
-
-While using Codex and VSCode, there was plenty of conversation to
-explore what production agents might do (e.g. robust persistent memory) vs. what a scaled down
-version would be for this toy agent (simple in-memory summarization only).
-
-I could continue expansion, such as adding support for other cloud and local models, but I believe
-the patterns will be similar at this level of abstraction and I'd rather move up the stack.
-For example, [Claude Agent SDK](https://nader.substack.com/p/the-complete-guide-to-building-agents)
-takes care of the agent loop and tooling, as does [pi-mono](https://github.com/badlogic/pi-mono/tree/main)
-and [Strands](https://strandsagents.com/). Even no-code or little-code approaches such as Claude desktop
-app with it's built-in skills means business outcomes can be achieved without having to use a coded
-harness at all - just bring custom data and connectors to the table. My takeaway, even if i never touch
-agentic-loop code again, is a hightened understanding of the lower-level so that I have more intuition
-when working on business outcomes.
+A large part of the exercise was to inspect behavior at the edges without
+driving up token usage or cost. That led to features for intentionally
+constrained memory, visible context pressure, naive versus improved retrieval,
+and other controls that are more useful for learning than for production.
 
 
 ## Requirements
@@ -63,6 +47,10 @@ uv build
 ```
 
 Build artifacts are written to `dist/`.
+
+## License
+
+This repository's code is released under the MIT License. See [`LICENSE`](LICENSE).
 
 ## Features
 
@@ -139,8 +127,42 @@ Retrieval controls:
 
 Checked-in retrieval examples:
 
-- `inputs/fda-label-sample.json` is a small FDA-style label corpus for local retrieval demos
+- `inputs/fda-label-sample.json` is a small synthetic FDA-style label corpus for local retrieval demos
 - `inputs/fda-label-eval.json` is a small eval set for comparing `grep` and BM25 retrieval
+
+Data notes:
+
+- the checked-in `inputs/fda-label-sample.json` file is a handcrafted demo corpus in the style of FDA/openFDA label data and is not an official FDA export
+- the intended real-world source for this milestone is FDA/openFDA drug labeling data
+- FDA/openFDA data is generally public domain / CC0; requested attribution is: `Data provided by the U.S. Food and Drug Administration (open.fda.gov)`
+
+## Notes
+
+I built this project with substantial help from Codex, both as a coding
+assistant and as part of the learning goal. I already had experience working
+with other AI-assisted development tools and model stacks; the new element here
+was gaining direct hands-on experience with Codex and GPT-based coding
+workflows.
+
+I also built this at a relatively low level on purpose. The goal was to deepen
+intuition for tool calling, memory, retrieval, context pressure, and evaluation
+by working through the mechanics directly. In future production work, I would
+usually prefer higher-level agent frameworks or managed tooling when they fit
+the problem, rather than rebuilding the loop from scratch. Frameworks such as
+[Claude Agent SDK](https://nader.substack.com/p/the-complete-guide-to-building-agents),
+[Strands](https://strandsagents.com/), and similar higher-level platforms are
+often the better choice once the underlying patterns are understood.
+
+## Edge-Case Demos
+
+Several examples in the repo are intentionally designed to exercise failure
+modes or boundary behavior for learning purposes:
+
+- `inputs/last-n-forgetting-turns.txt` shows how a small `local-last-n` window can cause the agent to forget earlier constraints
+- `inputs/summary-compaction-turns.txt` forces rolling-summary compaction quickly so the summary boundary is easy to inspect
+- `inputs/keep-all-overflow-turns.txt` is sized to stress unrealistic replay windows and make context pressure visible
+- the `Limits And Failure Modes` section below explains how truncated outputs, rate limits, and context-window pressure show up in the CLI
+- the FDA label retrieval demo and `inputs/fda-label-eval.json` make it easy to compare naive free-text retrieval with BM25 ranking over the same chunk corpus
 
 ## Limits And Failure Modes
 
@@ -258,6 +280,9 @@ Run the agent with the FDA label retrieval tool enabled:
 uv run ctagentopenai --api-key .openai.key --label-db .artifacts/fda-labels.sqlite --input "What does the label say about pregnancy for ibuprofen?"
 ```
 
+The FDA label retrieval demo is for software experimentation and does not
+provide medical advice.
+
 The checked-in `inputs/last-n-forgetting-turns.txt` file is designed to keep
 intermediate responses short so you can observe `local-last-n` memory loss more
 clearly on the final turn.
@@ -267,8 +292,39 @@ Available conversation history modes:
 - `server-managed`: use `previous_response_id` and let the API manage history
 - `local-last-n`: keep only the last `N` turns in memory and resend those
 
-## Project Notes
+## My thoughts on production-ready architecture for agents
 
-- The package source lives under `src/ctagentopenai/`
-- Tests live under `tests/`
-- Roadmap and study notes live under `docs/`
+If one were to be considering how a low-level agent built like this one would be promoted to a
+more production-like experience, such as a web UI, there are a few immediate limitations to address:
+
+1. **In-memory context**: Sessions would need to be persisted, as the compute layers could be intentionally
+transient (Lambda) or unintentionally crash/die/age out and need replacement (EC2, Fargate).
+I would be looking to cache layers such as Redis/ElastiCache, possibly backed by longer-term persistence in DynamoDB.
+DynamoDB is fast enough that it could serve as both the primary session store and persistence layer, if the keys and indexing are designed for it.
+
+2. **Retrieval**: Retrieval would obviously not be a local file such as sqlite. Again looking for persistence
+that would outlast compute layer recycling. The storage would heavily depend upon the size of the data, update
+frequency, and retrieval patterns. SQL-based storage, compatible with the sqlite queries in this repo, include
+PostgreSQL/MySQL on RDS, preferably Aurora. OpenSearch would provide full-text search out of the box.
+
+In any live service needing fast retrieval times, the raw data will need transformed from the origin into a format
+ideal for querying, sometimes needing multiple indexes and denormalization. Small, well indexed data like the FDA 
+label drug-facts we used, is easy to gather all relevant data into local working memory and run the BM25 search on
+that subset but this is a rather unique case. 
+
+3. **UX**: The CLI would need to be replaced by a web front-end if we're doing turn-based chat. Web assets could be served from
+S3, `cli.py` replaced by an `api.py` implementing a web server such as flask on long-lived compute or even a single handler
+function served up by Lambda.
+
+4. **Authentication and Authorization**: Exposing anything as a service would require some auth of some sort. There are too many
+to list here, but cannot be skipped. Okta, Cognito, standard OAuth...
+
+5. **Logging and Monitoring**: Alarms on service metrics are table stakes, but some business metrics could be:
+hit/miss rate on retrieval tool, memory compaction frequency and summary size, tool usage frequency, and all
+could use model choice as a dimension to compare behavior between them. A good illustration is that, when
+using the lowest reasoning level, the summary step produced a one-word summary that dropped any useful knowledge.
+
+That covers the immediate needs to make it functional, but this still leaves several areas outside a full production design:
+- Data pipeline for ingestion of updated retrieval data (e.g. new drugs approved by FDA)
+- CI/CD to roll out updated service code and prompts
+- Separate agent for response quality validation gating the answers sent to clients
