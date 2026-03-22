@@ -9,6 +9,19 @@ driving up token usage or cost. That led to features for intentionally
 constrained memory, visible context pressure, naive versus improved retrieval,
 and other controls that are more useful for learning than for production.
 
+## Table of Contents
+
+- [Requirements](#requirements)
+- [Setup](#setup)
+- [Test](#test)
+- [Build](#build)
+- [License](#license)
+- [Features](#features)
+- [Notes](#notes)
+- [Edge-Case Demos](#edge-case-demos)
+- [Limits And Failure Modes](#limits-and-failure-modes)
+- [CLI Usage](#cli-usage)
+- [My thoughts on production-ready architecture for agents](#my-thoughts-on-production-ready-architecture-for-agents)
 
 ## Requirements
 
